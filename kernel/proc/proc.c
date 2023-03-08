@@ -217,6 +217,7 @@ proc_t *proc_create(const char *name)
         proc_initproc = proc;
     }
     list_insert_tail(&proc_list, &proc->p_list_link);
+    list_insert_tail(&proc->p_pproc->p_children, &proc->p_child_link);
     return proc;
 }
 
