@@ -78,7 +78,7 @@ kthread_t *kthread_create(proc_t *proc, kthread_func_t func, long arg1, /// what
 
     kthread->kt_retval = 0;      /// what Return value?
     kthread->kt_errno = 0;        /// correct?
-    struct proc *kt_proc; /* Corresponding process */
+    kthread->kt_proc = proc; /* Corresponding process */
 
     kthread->kt_cancelled =0 ;   //
     //sched_queue_init(&kthread->kt_wchan); /// what is this?

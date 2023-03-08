@@ -156,6 +156,7 @@ static void make_devices()
  */
 static void *initproc_run(long arg1, void *arg2)
 {
+    proctest_main(0, NULL);
 #ifdef __VFS__
     dbg(DBG_INIT, "Initializing VFS...\n");
     vfs_init();
@@ -185,7 +186,7 @@ void initproc_start()
     //KASSERT(NULL != initthr);
     sched_make_runnable(initthr);
     context_make_active(&curcore.kc_ctx);
-    
+
     NOT_YET_IMPLEMENTED("PROCS: initproc_start");
 }
 

@@ -291,8 +291,7 @@ void proc_thread_exiting(void *retval)
     curthr->kt_state = KT_EXITED;
     curthr->kt_retval = retval;
     sched_broadcast_on(&curproc->p_pproc->p_wait); // on parent's pwait
-    sched_switch(&curproc->p_wait, NULL); /// arguments?
-
+    sched_switch(NULL, NULL); /// arguments?
 }
 
 /*
