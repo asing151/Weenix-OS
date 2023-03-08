@@ -178,6 +178,14 @@ static void *initproc_run(long arg1, void *arg2)
  */
 void initproc_start()
 {
+    proc_t *initproc = proc_create("initproc");
+    //KASSERT(NULL != initproc);
+    //KASSERT(PID_INIT == initproc->p_pid);
+    kthread_t *initthr = kthread_create(initproc, initproc_run, 0, NULL);
+    //KASSERT(NULL != initthr);
+    sched_make_runnable(initthr);
+    context_make_active(&curcore.kc_ctx);
+    
     NOT_YET_IMPLEMENTED("PROCS: initproc_start");
 }
 

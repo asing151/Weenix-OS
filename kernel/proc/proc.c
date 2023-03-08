@@ -186,7 +186,38 @@ proc_t *proc_lookup(pid_t pid)
 proc_t *proc_create(const char *name)
 {
     NOT_YET_IMPLEMENTED("PROCS: proc_create");
-    return NULL;
+    proc_t *proc;
+    pid_t pid = _proc_getid();
+    if (pid == -1)
+    {
+        return NULL;
+    }
+    proc = (proc_t *)slab_obj_alloc(proc_allocator);
+    if (proc == NULL) /// do I need this?
+    {
+        return NULL;
+    }
+    pml4_t *pt = pt_create();
+
+    proc->p_pid = pid;
+    list_init(&proc->p_threads);           
+    list_init(&proc->p_children);
+    proc->p_pproc = curproc;
+    list_link_init(&proc->p_child_link);
+    list_link_init(&proc->p_list_link);
+    spinlock_init(&proc->p_children_lock);
+    proc->p_status = 0;
+    proc->p_state = PROC_RUNNING; /// what to set this to?
+    proc->p_pml4 = pt;
+    sched_queue_init(&proc->p_wait);
+    /// initialize p_wait??? and the ones after that?
+
+    if (pid == PID_INIT) /// place this earlier?
+    {
+        proc_initproc = proc;
+    }
+    list_insert_tail(&proc_list, &proc->p_list_link);
+    return proc;
 }
 
 /*
@@ -208,7 +239,35 @@ proc_t *proc_create(const char *name)
  */
 void proc_cleanup(long status)
 {
-    NOT_YET_IMPLEMENTED("PROCS: proc_cleanup");
+   // NOT_YET_IMPLEMENTED("PROCS: proc_cleanup");
+    proc_t *proc = curproc;
+    KASSERT(NULL != proc); /// do I need KASSERTS like this?
+    // KASSERT(NULL != proc->p_pml4);
+    // KASSERT(0 != (proc->p_state & PROC_RUNNING));
+    // KASSERT(NULL != proc->p_pproc);
+    // KASSERT(NULL != proc->p_pml4);
+    // KASSERT(NULL != proc->p_pagedir);
+    // KASSERT(NULL != proc->p_vmmap);
+    // KASSERT(NULL != proc->p_cwd);
+    // KASSERT(NULL != proc->p_files);
+
+    if (proc->p_pid == PID_INIT)
+    {
+        initproc_finish();
+    }
+    else
+    {
+        list_iterate(&proc->p_children, p, proc_t, p_child_link)
+        {
+            p->p_pproc = proc_initproc;
+            // remove from whatever que it was on
+            list_insert_tail(&proc_initproc->p_children, &p->p_child_link); /// is this call correct?
+
+        }
+    }
+    proc->p_state = PROC_DEAD; 
+    proc->p_status = status;
+    /// should I call sched_switch here?
 }
 
 /*
@@ -227,6 +286,13 @@ void proc_cleanup(long status)
 void proc_thread_exiting(void *retval)
 {
     NOT_YET_IMPLEMENTED("PROCS: proc_thread_exiting");
+    /// IS THIS ALL?
+    proc_cleanup((long)retval);
+    curthr->kt_state = KT_EXITED;
+    curthr->kt_retval = retval;
+    sched_broadcast_on(&curproc->p_pproc->p_wait); // on parent's pwait
+    sched_switch(&curproc->p_wait, NULL); /// arguments?
+
 }
 
 /*
@@ -238,6 +304,12 @@ void proc_thread_exiting(void *retval)
 void proc_kill(proc_t *proc, long status)
 {
     NOT_YET_IMPLEMENTED("PROCS: proc_kill");
+    KASSERT(proc != curproc);
+    list_iterate(&proc->p_threads, t, kthread_t, kt_plink) 
+    {
+        kthread_cancel(t, (void *)status); /// void pointer correct?
+    }
+
 }
 
 /*
@@ -251,6 +323,12 @@ void proc_kill(proc_t *proc, long status)
  */
 void proc_kill_all()
 {
+    list_iterate(&proc_list, process, proc_t, p_list_link){
+        if (process != curproc && process->p_pid != PID_IDLE){
+        proc_kill(process, -1); 
+        }
+    }
+    do_exit(-1); /// correct?
     NOT_YET_IMPLEMENTED("PROCS: proc_kill_all");
 }
 
@@ -325,10 +403,96 @@ void proc_destroy(proc_t *proc)
  * If waiting on any child (-1), do_waitpid can return when *any* child has exited,
  * it does not have to return the one that exited earliest.
  */
-pid_t do_waitpid(pid_t pid, int *status, int options)
+pid_t do_waitpid(pid_t pid, int *status, int options) /// is the parent process the current process?
 {
-    NOT_YET_IMPLEMENTED("PROCS: do_waitpid");
+    NOT_YET_IMPLEMENTED("PROCS: do_waitpid"); 
+    if (pid == 0 || (pid < 0 && pid != -1) || options != 0)
+    {
+        return -ENOTSUP;
+    }
+    if (pid > 0)
+    {
+        list_iterate(&curproc->p_children, child, proc_t, p_child_link)
+        {
+            if (child->p_pid == pid) 
+            {
+                if (child->p_state == PROC_DEAD)
+                {
+                    if (status != NULL)
+                    {
+                        *status = child->p_status;
+                    }
+                    list_remove(&child->p_child_link);
+                    proc_destroy(child);
+                    return pid;
+                }
+                else
+                {
+                    sched_sleep_on(&curproc->p_wait, NULL); /// what lock to pass in?
+                    if (status != NULL)
+                    {
+                        *status = child->p_status;
+                    }
+                    list_remove(&child->p_child_link);
+                    proc_destroy(child);
+                    return pid;
+                }
+            }
+            else {
+                return -ECHILD;
+                }
+        }
+    }
+    else if (pid == -1)
+    {
+        if (list_empty(&curproc->p_children))
+        {
+            return -ECHILD;
+        }
+        else
+        {
+            while(1){
+                list_iterate(&curproc->p_children, child, proc_t, p_child_link)
+                {
+                    if (child->p_state == PROC_DEAD)
+                    {
+                        if (status != NULL)
+                        {
+                            *status = child->p_status;
+                        }
+                        list_remove(&child->p_child_link);
+                        proc_destroy(child);
+                        return child->p_pid;
+                    }
+                }
+                sched_sleep_on(&curproc->p_wait, NULL);
+            }
+            
+            // rest not needed
+            
+         
+        //     sched_sleep_on(&curproc->p_wait);
+        //     list_iterate(&curproc->p_children, child, proc_t, p_child_link)
+        //     {
+        //         if (child->p_state == PROC_DEAD)
+        //         {
+        //             if (status != NULL)
+        //             {
+        //                 *status = child->p_status;
+        //             }
+        //             list_remove(&child->p_child_link);
+        //             proc_destroy(child);
+        //             return child->p_pid;
+        //         }
+        //     }
+        // }
+        }
+
     return 0;
+
+    }
+    return 0;
+
 }
 
 /*
@@ -337,6 +501,8 @@ pid_t do_waitpid(pid_t pid, int *status, int options)
 void do_exit(long status)
 {
     NOT_YET_IMPLEMENTED("PROCS: do_exit");
+
+    kthread_exit((void *)status); /// just this?
 }
 
 /*==========

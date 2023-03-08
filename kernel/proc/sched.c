@@ -156,14 +156,22 @@ void sched_init(void)
  *      2. It was cancelled.
  *
  * Returns 0, or:
- *  - EINTR: If curthr is cancelled before or after the call to sched_switch()
+ *  - EINTR: If curthr is cancelled before or after the call to sched_switch() /// am I handling this correctly?
  * 
  * Hints:
  * Do not enqueue the thread directly, let sched_switch handle this.
  */
 long sched_cancellable_sleep_on(ktqueue_t *queue, spinlock_t *lock)
 {
-    NOT_YET_IMPLEMENTED("PROCS: sched_cancellable_sleep_on");
+    curthr->kt_state = KT_SLEEP_CANCELLABLE; /// lock any mutexes before changing state?
+    if (curthr->kt_cancelled) { /// seems untidy?
+        return EINTR;
+    }
+    sched_switch(queue, lock);
+    if (curthr->kt_cancelled) {
+        return EINTR;
+    }
+    //NOT_YET_IMPLEMENTED("PROCS: sched_cancellable_sleep_on");
     return 0;
 }
 
@@ -175,6 +183,14 @@ long sched_cancellable_sleep_on(ktqueue_t *queue, spinlock_t *lock)
  */
 void sched_cancel(kthread_t *thr)
 {
+    KASSERT(thr != NULL);
+    if (thr->kt_state == KT_SLEEP_CANCELLABLE) {
+        //spinlock_acquire(&thr->kt_wchan->tq_lock); /// need to lock?
+        ktqueue_remove(thr->kt_wchan, thr);
+       // spinlock_release(&thr->kt_wchan->tq_lock);
+    }
+    thr->kt_cancelled = 1;
+
     NOT_YET_IMPLEMENTED("PROCS: sched_cancel");
 }
 
@@ -205,10 +221,21 @@ void sched_cancel(kthread_t *thr)
  * For debugging purposes, you may find it useful to set
  * last_thread_context to the context of the current thread here before the call
  * to context_switch.
+ * 
  */
+ 
 void sched_switch(ktqueue_t *queue, spinlock_t *lock)
 {
-    NOT_YET_IMPLEMENTED("PROCS: sched_switch");
+    KASSERT(curthr->kt_state != KT_ON_CPU);
+    intr_disable();
+    intr_setipl(IPL_LOW);
+    curcore.kc_queue = queue;
+    last_thread_context = &curthr->kt_ctx;
+    context_switch(&curthr->kt_ctx, &curcore.kc_ctx); /// review this?
+    intr_setipl(IPL_HIGH);
+    intr_enable();
+
+    //NOT_YET_IMPLEMENTED("PROCS: sched_switch");
 }
 
 /*
@@ -236,6 +263,16 @@ void sched_yield()
  */
 void sched_make_runnable(kthread_t *thr)
 {
+    KASSERT(thr != curthr);
+    KASSERT(thr->kt_state != KT_ON_CPU); /// just to make sure?
+    int old_ipl = intr_setipl(IPL_HIGH);
+    // spinlock_lock(&thr->kt_lock); /// locks not needed right? they're used in yield?...
+    thr->kt_state = KT_RUNNABLE;
+    // spinlock_lock(&kt_runq.tq_lock);
+    ktqueue_enqueue(&kt_runq, thr);
+    // spinlock_release(&kt_runq.tq_lock);
+    // spinlock_release(&thr->kt_lock);
+    intr_setipl(old_ipl);
     NOT_YET_IMPLEMENTED("PROCS: sched_make_runnable");
 }
 
@@ -255,6 +292,12 @@ void sched_make_runnable(kthread_t *thr)
  */
 void sched_sleep_on(ktqueue_t *q, spinlock_t *lock)
 {
+    KASSERT(curthr->kt_state == KT_ON_CPU); /// need this?
+    int old_ipl = intr_setipl(IPL_HIGH);
+    curthr->kt_state = KT_SLEEP;
+    curthr->kt_wchan = q;
+    sched_switch(q, lock);
+    intr_setipl(old_ipl);
     NOT_YET_IMPLEMENTED("PROCS: sched_sleep_on");
 }
 
@@ -271,6 +314,17 @@ void sched_sleep_on(ktqueue_t *q, spinlock_t *lock)
  */
 void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
 {
+    /// any error checking needed here?
+    if (q->tq_size > 0)
+    {
+        kthread_t *thr = ktqueue_dequeue(q);
+        if (ktp != NULL)
+        {
+            *ktp = thr; /// is this a copy? or a pointer to a copy?
+        }
+        sched_make_runnable(thr);
+    }
+
     NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
 }
 
@@ -279,6 +333,10 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
  */
 void sched_broadcast_on(ktqueue_t *q)
 {
+    while (q->tq_size > 0)
+    {
+        sched_wakeup_on(q, NULL);
+    }
     NOT_YET_IMPLEMENTED("PROCS: sched_broadcast_on");
 }
 

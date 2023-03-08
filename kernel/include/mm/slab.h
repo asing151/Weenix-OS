@@ -58,7 +58,6 @@ void slab_init();
  * @return slab_allocator_t* An allocator, or NULL on failure
  */
 slab_allocator_t *slab_allocator_create(const char *name, size_t size);
-
 /**
  * Destroys a slab allocator.
  * 
