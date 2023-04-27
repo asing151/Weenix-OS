@@ -671,13 +671,13 @@ long do_link(const char *oldpath, const char *newpath)
 long do_rename(const char *oldpath, const char *newpath)
 {
     vnode_t *old_res_vnode = NULL;
-    const char **old_name;
-    size_t *old_namelen;
+    const char **old_name = NULL;
+    size_t *old_namelen = NULL;
     //vnode_t **res_vnode = NULL;
 
     vnode_t *new_res_vnode = NULL;
-    const char **new_name;
-    size_t *new_namelen;
+    const char **new_name = NULL;
+    size_t *new_namelen = NULL;
 
     long old_ret = namev_dir(curproc->p_cwd, oldpath, &old_res_vnode, old_name, old_namelen); /// is base right?
     if (old_ret != 0) {

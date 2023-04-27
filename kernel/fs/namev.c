@@ -354,13 +354,15 @@ long namev_open(vnode_t *base, const char *path, int oflags, int mode,
     return 0;
     //NOT_YET_IMPLEMENTED("VFS: namev_open");
 }
+
+long namev_resolve(vnode_t *base, const char *path, vnode_t **res_vnode)
+{
+    return namev_open(base, path, O_RDONLY, 0, 0, res_vnode);
+}
 /*
  * Wrapper around namev_open with O_RDONLY and 0 mode/devid
  */
-// long namev_resolve(vnode_t *base, const char *path, vnode_t **res_vnode)
-// {
-//     return namev_open(base, path, O_RDONLY, 0, 0, res_vnode);
-// }
+
 
 #ifdef __GETCWD__
 /* Finds the name of 'entry' in the directory 'dir'. The name is writen

@@ -322,7 +322,10 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
         {
             *ktp = thr; /// is this a copy? or a pointer to a copy?
         }
-        sched_make_runnable(thr);
+        if (thr != NULL){
+            sched_make_runnable(thr);
+        }
+        
     }
 
     NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
