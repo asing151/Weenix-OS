@@ -315,6 +315,7 @@ void sched_sleep_on(ktqueue_t *q, spinlock_t *lock)
 void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
 {
     /// any error checking needed here?
+    *ktp = NULL;
     if (q->tq_size > 0)
     {
         kthread_t *thr = ktqueue_dequeue(q);
@@ -327,8 +328,7 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
         }
         
     }
-
-    NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
+    //NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
 }
 
 /*

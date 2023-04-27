@@ -287,13 +287,8 @@ long do_mkdir(const char *path)
         vput(&parent_vnode);
         return -ENAMETOOLONG;
     }
-    /// 
-    /// 1. enoent= mkdir called if name not too long 
-    /// 2. enotdir, or any other error: proparagate error
-    /// 3 if found the file: if resvnode non null, if last thing /, if dir, return, else enotdir 
 
     vlock(parent_vnode);
-
     long res = namev_lookup(parent_vnode, name, namelen, &res_vnode);
 
     if (res == 0){
