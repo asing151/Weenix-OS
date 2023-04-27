@@ -16,7 +16,14 @@
  */
 void ldisc_init(ldisc_t *ldisc)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: ldisc_init");
+    ldisc->ldisc_cooked = 0; /// is this all to be done to wipe clean?
+    ldisc->ldisc_tail = 0;
+    ldisc->ldisc_head = 0;
+    ldisc->ldisc_full = 0;
+    sched_queue_init(&ldisc->ldisc_read_queue);
+    memset(ldisc->ldisc_buffer, 0, LDISC_BUFFER_SIZE);
+    //ldisc->ldisc_buffer[0] = '\0'; /// correct? should I make a new char buffer?
+    //NOT_YET_IMPLEMENTED("DRIVERS: ldisc_init");
 }
 
 /**
@@ -33,8 +40,16 @@ void ldisc_init(ldisc_t *ldisc)
  */
 long ldisc_wait_read(ldisc_t *ldisc, spinlock_t *lock)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: ldisc_wait_read");
-    return -1;
+    long ret;
+    while (ldisc->ldisc_cooked == ldisc->ldisc_tail && ldisc->ldisc_full == 0) { /// is this all? are my conditions right? should I check readq?
+        ret = sched_cancellable_sleep_on(&ldisc->ldisc_read_queue, lock);
+        if (ret != 0){
+            return ret;
+        }
+    }
+    return ret;
+    //NOT_YET_IMPLEMENTED("DRIVERS: ldisc_wait_read");
+    //return -1;
 }
 
 /**
@@ -54,8 +69,21 @@ long ldisc_wait_read(ldisc_t *ldisc, spinlock_t *lock)
  */
 size_t ldisc_read(ldisc_t *ldisc, char *buf, size_t count)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: ldisc_read");
-    return 0;
+    size_t i = 0;
+    while (i < count && ldisc->ldisc_cooked != ldisc->ldisc_tail) { /// is the while condition correct?
+        if (ldisc->ldisc_buffer[ldisc->ldisc_cooked] == '\n') {
+            break;
+        }
+        if (ldisc->ldisc_buffer[ldisc->ldisc_cooked] == EOT) {
+            break;
+        }
+        buf[i] = ldisc->ldisc_buffer[ldisc->ldisc_cooked];
+        ldisc->ldisc_cooked = (ldisc->ldisc_cooked + 1) % LDISC_BUFFER_SIZE; /// do I need these % LDISC_BUFFER_SIZEs?
+        i++; /// might be off by 1 or so
+    }
+    return i;
+    //NOT_YET_IMPLEMENTED("DRIVERS: ldisc_read");
+
 }
 
 /**
@@ -103,7 +131,42 @@ size_t ldisc_read(ldisc_t *ldisc, char *buf, size_t count)
  */
 void ldisc_key_pressed(ldisc_t *ldisc, char c)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: ldisc_key_pressed");
+    if (ldisc->ldisc_full == 1) {
+        return;
+    }
+    if (c == '\b') {
+        if (ldisc->ldisc_head != ldisc->ldisc_tail) { /// do I need this if wrapper?
+            ldisc->ldisc_head = (ldisc->ldisc_head - 1) % LDISC_BUFFER_SIZE; /// the %s not needed right
+            //vterminal_key_pressed(c); /// how many calls to this?
+            vterminal_write(&ldisc_to_tty(ldisc)->tty_vterminal, "\v", 1);
+        }
+    }
+    else if (c == EOT) { /// "do not emit an `\n` character* to the vterminal" - handled right?
+        ldisc->ldisc_buffer[ldisc->ldisc_head] = c;
+        ldisc->ldisc_head = (ldisc->ldisc_head + 1) % LDISC_BUFFER_SIZE;
+        ldisc->ldisc_full = 1;
+        ldisc->ldisc_cooked = ldisc->ldisc_tail; /// relationship between cooked and tail?
+        sched_wakeup_on(&ldisc->ldisc_read_queue, NULL); /// second arg correct?
+    }
+    else if (c == ETX) {
+        ldisc->ldisc_head = ldisc->ldisc_tail;
+    }
+    else if (c == '\n') {
+        ldisc->ldisc_buffer[ldisc->ldisc_head] = c;
+        ldisc->ldisc_head = (ldisc->ldisc_head + 1) % LDISC_BUFFER_SIZE;
+        ldisc->ldisc_cooked = ldisc->ldisc_tail;
+        vterminal_write(&ldisc_to_tty(ldisc)->tty_vterminal, "\n", 1); /// what is the terminal?
+        sched_wakeup_on(&ldisc->ldisc_read_queue, NULL);
+    }
+    else if (ldisc->ldisc_head == (ldisc->ldisc_tail - 1) % LDISC_BUFFER_SIZE) {
+        return;
+    }
+    else {
+        ldisc->ldisc_buffer[ldisc->ldisc_head] = c;
+        ldisc->ldisc_head = (ldisc->ldisc_head + 1) % LDISC_BUFFER_SIZE; /// are thesea the only steps?
+        vterminal_key_pressed(&ldisc_to_tty(ldisc)->tty_vterminal); /// what args???
+    }
+    /// NOT_YET_IMPLEMENTED("DRIVERS: ldisc_key_pressed");
 }
 
 /**
@@ -115,6 +178,12 @@ void ldisc_key_pressed(ldisc_t *ldisc, char c)
  */
 size_t ldisc_get_current_line_raw(ldisc_t *ldisc, char *s)
 {
+    size_t i = 0;
+    while (ldisc->ldisc_tail != ldisc->ldisc_head) { /// what should the check be???
+        s[i] = ldisc->ldisc_buffer[ldisc->ldisc_tail];
+        ldisc->ldisc_tail = (ldisc->ldisc_tail + 1) % LDISC_BUFFER_SIZE;
+        i++;
+    }
     NOT_YET_IMPLEMENTED("DRIVERS: ldisc_get_current_line_raw");
     return 0;
 }

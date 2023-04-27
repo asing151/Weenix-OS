@@ -210,7 +210,7 @@ proc_t *proc_create(const char *name)
     proc->p_state = PROC_RUNNING; /// what to set this to?
     proc->p_pml4 = pt;
     sched_queue_init(&proc->p_wait);
-    /// initialize p_wait??? and the ones after that?
+
 
     if (pid == PID_INIT) /// place this earlier?
     {

@@ -16,7 +16,7 @@
  * read.
  *
  * Return the number of bytes read on success, or:
- *  - EBADF: fd is invalid or is not open for reading
+ *  - EBADF: f d is invalid or is not open for reading
  *  - EISDIR: fd refers to a directory
  *  - Propagate errors from the vnode operation read
  *
@@ -26,8 +26,33 @@
  */
 ssize_t do_read(int fd, void *buf, size_t len)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_read");
-    return -1;
+    file_t *file = fget(fd);
+    if (file == NULL ) {
+        return -EBADF;
+    }
+    if (file->f_mode & FMODE_READ) {
+        if (S_ISDIR(file->f_vnode->vn_mode)) { // can be outside this if
+            fput(&file); 
+            return -EISDIR;
+        }
+        vlock(file->f_vnode);
+        int ret = file->f_vnode->vn_ops->read(file->f_vnode, file->f_pos, buf, len);
+        if (ret != 0) {
+            vunlock(file->f_vnode);
+            fput(&file);
+            return ret;
+        }
+
+        file->f_pos += ret;
+        vunlock(file->f_vnode);
+        fput(&file);
+
+        return ret;
+    } else {
+        fput(&file);
+        return -EBADF;
+    }
+    //NOT_YET_IMPLEMENTED("VFS: do_read");
 }
 
 /*
@@ -46,8 +71,34 @@ ssize_t do_read(int fd, void *buf, size_t len)
  */
 ssize_t do_write(int fd, const void *buf, size_t len)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_write");
-    return -1;
+    file_t *file = fget(fd);
+    if (file == NULL ) {
+        return -EBADF;
+    }
+    if (file->f_mode & FMODE_WRITE) {
+        vlock(file->f_vnode);
+        if (file->f_mode & FMODE_APPEND) {
+            file->f_pos = file->f_vnode->vn_len;
+        }
+        int ret = file->f_vnode->vn_ops->write(file->f_vnode, file->f_pos, buf, len);
+        if (ret != 0) {
+            vunlock(file->f_vnode);
+            fput(&file);
+            return ret;
+        }
+
+        file->f_pos += ret;
+        vunlock(file->f_vnode);
+        fput(&file);
+
+        return ret;
+    } else {
+        fput(&file);
+        return -EBADF;
+    }
+    //NOT_YET_IMPLEMENTED("VFS: do_write");
+    
+    //return -1;
 }
 
 /*
@@ -63,8 +114,18 @@ ssize_t do_write(int fd, const void *buf, size_t len)
  */
 long do_close(int fd)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_close");
-    return -1;
+    if (fd < 0 || fd >= NFILES) {
+        return -EBADF;
+    } else { 
+        if (curproc->p_files[fd] == NULL) {
+        return -EBADF;
+        }
+        fput(&curproc->p_files[fd]); /// is arg type correct?
+        curproc->p_files[fd] = NULL;
+    }
+
+    //NOT_YET_IMPLEMENTED("VFS: do_close");
+    return 0;
 }
 
 /*
@@ -76,10 +137,32 @@ long do_close(int fd)
  *
  * Hint: Use get_empty_fd() to obtain an available file descriptor.
  */
+
 long do_dup(int fd)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_dup");
-    return -1;
+    if (fd < 0 || fd >= NFILES) {
+        return -EBADF;
+    } else { 
+        if (curproc->p_files[fd] == NULL) {
+        return -EBADF;
+        }
+    }
+    
+    int new_fd;
+
+    file_t *file = fget(fd);
+
+    long ret_fd = get_empty_fd(&new_fd); /// right arg?
+    if (ret_fd != 0) {
+        return ret_fd;
+    }
+    fref(file);
+
+    /// should i do this? :
+    curproc->p_files[new_fd] = file;
+
+    //NOT_YET_IMPLEMENTED("VFS: do_dup");
+    return new_fd;
 }
 
 /*
@@ -92,10 +175,34 @@ long do_dup(int fd)
  * Hint: You don't need to do anything if ofd and nfd are the same.
  * (If supporting MTP, this action must be atomic)
  */
-long do_dup2(int ofd, int nfd)
+long do_dup2(int ofd, int nfd) /// this is all right?
 {
-    NOT_YET_IMPLEMENTED("VFS: do_dup2");
-    return -1;
+    if (ofd < 0 || ofd >= NFILES || nfd < 0 || nfd >= NFILES) { /// is this ok?
+        return -EBADF;
+    } else { 
+        if (curproc->p_files[ofd] == NULL) {
+        return -EBADF;
+        }
+    }
+    if (ofd == nfd) {
+        /// fput(&file); /// fput needed here?
+        return nfd; /// this is all, right?
+    }
+
+    if (curproc->p_files[nfd] != NULL){
+        fput(&curproc->p_files[nfd]);
+        // int ret = do_close(nfd);
+        // if (ret != 0) {
+        //     return ret;
+        // }
+    }
+
+    file_t *file = fget(ofd);
+
+    curproc->p_files[nfd] = file;
+
+    //NOT_YET_IMPLEMENTED("VFS: do_dup2");
+    return nfd;
 }
 
 /*
@@ -117,8 +224,22 @@ long do_dup2(int ofd, int nfd)
  */
 long do_mknod(const char *path, int mode, devid_t devid)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_mknod");
-    return -1;
+    if (mode != S_IFCHR && mode != S_IFBLK && mode != S_IFREG) {
+        return -EINVAL;
+    }
+    /// need to lock these?
+    vnode_t *base;
+    vnode_t *res_vnode;
+    // long namev_open(struct vnode *base, const char *path, int oflags, int mode, 
+    // devid_t devid, struct vnode **res_vnode)
+    int ret = namev_open(curproc->p_cwd, path, O_CREAT, mode, devid, &res_vnode); /// right args
+    if (ret != 0) {
+        return ret;
+    }
+    vput(&res_vnode);
+
+    //NOT_YET_IMPLEMENTED("VFS: do_mknod");
+    return 0;
 }
 
 /*
@@ -132,7 +253,7 @@ long do_mknod(const char *path, int mode, devid_t devid)
  *    operation mkdir
  *
  * Hints:
- * 1) Use namev_dir() to find the parent of the directory to be created.
+ * 1) Use namev_dir() to find the parent of the directory to be created. /// passing in curproc->p_cwd as base right?
  * 2) Use namev_lookup() to check that the directory does not already exist.
  * 3) Use the vnode operation mkdir to create the directory.
  *  - Compare against NAME_LEN to determine if the basename is too long.
@@ -143,8 +264,98 @@ long do_mknod(const char *path, int mode, devid_t devid)
  */
 long do_mkdir(const char *path)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_mkdir");
-    return -1;
+    long ret = 0;
+    vnode_t *parent_vnode = NULL;
+    const char *name = NULL;
+    size_t namelen = 0;
+    vnode_t *res_vnode = NULL;
+
+    ret = namev_dir(curproc->p_cwd, path, &parent_vnode, &name, &namelen);
+    if (ret != 0) {
+        if (parent_vnode != NULL) { // this ifchck not needed
+            vput(&parent_vnode);
+        }
+        return ret;
+    }
+
+    // chck if parent is a directory
+    if (!S_ISDIR((parent_vnode)->vn_mode)) {
+        vput(&parent_vnode);
+        return -ENOTDIR;
+    } 
+    if (namelen > NAME_LEN) {
+        vput(&parent_vnode);
+        return -ENAMETOOLONG;
+    }
+    /// 
+    /// 1. enoent= mkdir called if name not too long 
+    /// 2. enotdir, or any other error: proparagate error
+    /// 3 if found the file: if resvnode non null, if last thing /, if dir, return, else enotdir 
+
+    vlock(parent_vnode);
+
+    long res = namev_lookup(parent_vnode, name, namelen, &res_vnode);
+
+    if (res == 0){
+        vput_locked(&parent_vnode);
+        vput(&res_vnode);
+        return -EEXIST;
+
+        // if (strcmp(path[strlen(path)-1], "/")){
+        //     if (S_ISDIR((*res_vnode)->vn_mode)){
+        //         vput_locked(parent_vnode); /// check if null?
+        //         return 0;
+        //     } else {
+        //         vput_locked(parent_vnode);
+        //         return -ENOTDIR;
+        //     }
+        // }
+    } else if (res == -ENOENT){
+        //vunlock(&parent_vnode); 
+        // if (*namelen > NAME_LEN){ /// checked earlier
+        //     vput_locked(&parent_vnode);
+        //     return -ENAMETOOLONG;
+        // }
+        long ret = parent_vnode->vn_ops->mkdir(parent_vnode, name, namelen, &res_vnode);
+        if (ret != 0) {
+            //if (parent_vnode != NULL) { // if statement may not be needed
+                vput_locked(&parent_vnode);
+            } else {
+                vput(&res_vnode);
+                vput_locked(&parent_vnode);
+            }
+            return ret;
+
+    } else {
+        vput_locked(&parent_vnode);
+        return res;
+    }
+
+    // if (res == 0) { /// need this check? error propagation?
+    //     vunlock(&parent_vnode);
+    //     if (parent_vnode != NULL) {
+    //         vput(&parent_vnode);
+    //     }
+    //     return -EEXIST;
+    // } else if (res != -ENOENT) {/// 
+    //     vunlock(&parent_vnode);
+    //     if (parent_vnode != NULL) {
+    //         vput(&parent_vnode);
+    //     }
+    //     return res;
+    // } else {
+    //     // in this case, Use the vnode operation mkdir to create the directory
+    //     vunlock(&parent_vnode); /// unlock here correct?
+    //     long ret = parent_vnode->vn_ops->mkdir(parent_vnode, name, namelen, &res_vnode);
+    //     if (ret != 0) {
+    //         if (parent_vnode != NULL) {
+    //             vput(&parent_vnode);
+    //         }
+    //         return ret;
+    //     }
+    //     return 0;
+    // }
+    //NOT_YET_IMPLEMENTED("VFS: do_mkdir");
 }
 
 /*
@@ -165,8 +376,81 @@ long do_mkdir(const char *path)
  */
 long do_rmdir(const char *path)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_rmdir");
-    return -1;
+    // similar work to do_mkdir
+    vnode_t *parent_vnode = NULL;
+    const char *name = NULL;
+    size_t namelen = 0;
+    vnode_t *res_vnode = NULL;
+
+    long ret = namev_dir(curproc->p_cwd, path, &parent_vnode, &name, &namelen);
+    if (ret != 0) {
+        // if (parent_vnode != NULL) {
+        //     vput(&parent_vnode);
+        // }
+        return ret;
+    }
+
+    if (strcmp(name, ".") == 0) {
+        //if (parent_vnode != NULL) {
+        vput(&parent_vnode);
+        //}
+        return -EINVAL;
+    }
+
+    if (strcmp(name, "..") == 0) {
+        //if (parent_vnode != NULL) {
+        vput(&parent_vnode);
+        //}
+        return -ENOTEMPTY;
+    }
+
+    // chck if parent is a directory
+    if (!S_ISDIR((parent_vnode)->vn_mode)) {
+        //if (parent_vnode != NULL) { /// im putting this everywhere, is that ok?
+        vput(&parent_vnode);
+        //}
+        return -ENOTDIR;
+    }
+
+    if (namelen > NAME_LEN) {
+        //if (parent_vnode != NULL) {
+        
+        vput(&parent_vnode);
+       //}
+        return -ENAMETOOLONG;
+    }
+    vlock(parent_vnode);
+    ret = parent_vnode->vn_ops->rmdir(parent_vnode, name, namelen);
+    vunlock(parent_vnode);
+    vput(&parent_vnode);
+    return ret;
+
+
+
+    // vlock(&parent_vnode);
+    // long res = namev_lookup(parent_vnode, name, namelen, &res_vnode);
+    // if (res != 0) {
+    //     vunlock(&parent_vnode);
+    //     //if (parent_vnode != NULL) {
+    //     vput(&parent_vnode);
+    //     //}
+    //     return res;
+    // } else {
+    //     // in this case, Use the vnode operation mkdir to create the directory
+    //      /// unlock here correct?, or after?
+    //     long ret = parent_vnode->vn_ops->rmdir(parent_vnode, name, namelen, &res_vnode);
+    //     vunlock(&parent_vnode);
+    //     if (ret != 0) {
+    //         if (parent_vnode != NULL) {
+    //             vput(&parent_vnode);
+    //         }
+    //         return ret;
+    //     }
+    //     return 0;
+    // }
+
+    // NOT_YET_IMPLEMENTED("VFS: do_rmdir");
+    // return -1;
 }
 
 /*
@@ -174,20 +458,95 @@ long do_rmdir(const char *path)
  *
  * Return 0 on success, or:
  *  - ENOTDIR: the parent of the file to be unlinked is not a directory
+ *  - EPERM: the file to be unlinked is a directory 
  *  - ENAMETOOLONG: the last component of path is too long
  *  - Propagate errors from namev_dir() and the vnode operation unlink
  *
  * Hints:
  *  - Use namev_dir() and be careful about refcounts.
+ *  - Use namev_lookup() to get the vnode for the file to be unlinked. 
  *  - Lock/unlock the parent directory when calling its unlink operation.
  */
 long do_unlink(const char *path)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_unlink");
-    return -1;
+    // similar work to do_mkdir
+    vnode_t *parent_vnode = NULL;
+    const char *name = NULL;
+    size_t namelen = 0;
+    vnode_t *res_vnode = NULL;
+
+    long ret = namev_dir(curproc->p_cwd, path, &parent_vnode, &name, &namelen);
+    if (ret != 0) {
+        //if (parent_vnode != NULL) {
+            //vput(&parent_vnode); /// namevdir should tc of that
+        //}
+    return ret;
+    } 
+     
+    if (!S_ISDIR((parent_vnode)->vn_mode)) {
+       //if (parent_vnode != NULL) { /// im putting this everywhere, is that ok?
+        vput(&parent_vnode);
+        //}
+        return -ENOTDIR;
+    }
+    if (namelen > NAME_LEN) {
+        //if (parent_vnode != NULL) {
+        vput(&parent_vnode);
+       // }
+        return -ENAMETOOLONG;
+    }
+
+    vlock(parent_vnode);
+    long res = namev_lookup(parent_vnode, name, namelen, &res_vnode);
+    if (res != 0) {
+        //vunlock(&parent_vnode);
+        //if (parent_vnode != NULL) {
+        vput_locked(&parent_vnode);
+        //}
+        // if (res_vnode != NULL) {
+        //     vput(&res_vnode);
+        // }
+        return res;
+    } else {
+        // check if file is a directory
+        if (S_ISDIR((res_vnode)->vn_mode)) {
+            //vunlock(&parent_vnode);
+            //if (parent_vnode != NULL) {
+            vput_locked(&parent_vnode);
+            //}
+            // if res_vnode != NULL {
+            vput(&res_vnode);
+            // }
+            return -EPERM;
+        }
+        // in this case, Use the vnode unlink operation 
+        res = parent_vnode->vn_ops->unlink(res_vnode, name, namelen); /// num of args, parent vnode not needed
+        // if (res != 0) {
+        //     //if (parent_vnode != NULL) {
+        //     vunlock(&parent_vnode);
+        //     //}
+        //     if res_vnode != NULL {
+        //         vput(&res_vnode);
+        //     }
+        //     return res;
+        // }
+        vput_locked(&parent_vnode);
+        vput(&res_vnode);
+
+        return res;
+    }
+
+
+    //ret = parent_vnode->vn_ops->unlink(parent_vnode, name, namelen, &res_vnode);
+
+    
+
+
+    //NOT_YET_IMPLEMENTED("VFS: do_unlink");
+    //return -1;
 }
 
-/*
+/* 
  * Create a hard link newpath that refers to the same file as oldpath.
  *
  * Return 0 on success, or:
@@ -206,8 +565,71 @@ long do_unlink(const char *path)
  */
 long do_link(const char *oldpath, const char *newpath)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_link");
-    return -1;
+    // follow the instructions above in the function header
+    vnode_t *old_vnode = NULL;
+    vnode_t *new_vnode = NULL;
+    const char *name = NULL;
+    size_t namelen = 0;
+    vnode_t *res_vnode = NULL;
+
+    long ret = namev_resolve(curproc->p_cwd, oldpath, &old_vnode);
+    if (ret != 0) {
+        if (old_vnode != NULL) { //// comment this entire if check out?
+            vput(&old_vnode);
+        }
+        return ret;
+    }
+    if (S_ISDIR((old_vnode)->vn_mode)) {
+        if (old_vnode != NULL) { /// comment the if wrapper out?
+            vput(&old_vnode);
+        }
+        return -EPERM;
+    }
+
+    ret = namev_dir(curproc->p_cwd, newpath, &new_vnode, &name, &namelen);
+    if (ret != 0) {
+        if (old_vnode != NULL) { /// comment the if wrapper out?
+            vput(&old_vnode);
+        }
+        // if (new_vnode != NULL) {
+        //     vput(&new_vnode);
+        // }
+        return ret;
+    }
+    if (!S_ISDIR((new_vnode)->vn_mode)) { //// comment the if wrappers out? in the rest of the function?
+        if (old_vnode != NULL) {
+            vput(&old_vnode);
+        }
+        if (new_vnode != NULL) {
+            vput(&new_vnode);
+        }
+        return -ENOTDIR;
+    }
+    if (namelen > NAME_LEN) {
+        if (old_vnode != NULL) {
+            vput(&old_vnode);
+        }
+        if (new_vnode != NULL) {
+            vput(&new_vnode);
+        }
+        return -ENAMETOOLONG;
+    }
+
+    vlock_in_order(old_vnode, new_vnode);
+    long res = new_vnode->vn_ops->link(new_vnode, name, namelen, old_vnode);
+    vunlock_in_order(old_vnode, new_vnode);
+    if (res != 0) {
+        if (old_vnode != NULL) {
+            vput(&old_vnode);
+        }
+        if (new_vnode != NULL) {
+            vput(&new_vnode);
+        }
+        return res;
+    }
+    return 0;
+    //NOT_YET_IMPLEMENTED("VFS: do_link");
+    //return -1;
 }
 
 /* Rename a file or directory.
@@ -226,6 +648,7 @@ long do_link(const char *oldpath, const char *newpath)
  * 6. Unlock the olddir and newdir
  * 8. vput the olddir and newdir vnodes
  *
+ * ignore these comment section below
  * Alternatively, you can allow do_rename() to rename directories if
  * __RENAMEDIR__ is set in Config.mk. As with all extra credit
  * projects this is harder and you will get no extra credit (but you
@@ -242,10 +665,49 @@ long do_link(const char *oldpath, const char *newpath)
  *
  * P.S. This scheme /probably/ works, but we're not 100% sure.
  */
+
+
+
 long do_rename(const char *oldpath, const char *newpath)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_rename");
-    return -1;
+    vnode_t *old_res_vnode = NULL;
+    const char **old_name;
+    size_t *old_namelen;
+    //vnode_t **res_vnode = NULL;
+
+    vnode_t *new_res_vnode = NULL;
+    const char **new_name;
+    size_t *new_namelen;
+
+    long old_ret = namev_dir(curproc->p_cwd, oldpath, &old_res_vnode, old_name, old_namelen); /// is base right?
+    if (old_ret != 0) {
+        return old_ret;
+    }
+
+    long new_ret = namev_dir(curproc->p_cwd, newpath, &new_res_vnode, new_name, new_namelen);
+    if (new_ret != 0) {
+        return new_ret;
+    }
+
+    if (!S_ISDIR(old_res_vnode->vn_mode) || !S_ISDIR(new_res_vnode->vn_mode)) {
+        return -ENOTDIR;
+    }
+    
+    if (strlen(*old_name) > NAME_LEN || strlen(*new_name) > NAME_LEN) {
+        return -ENAMETOOLONG;
+    }
+
+    vlock_in_order(old_res_vnode, new_res_vnode);
+    //(struct vnode *olddir, const char *oldname, size_t oldnamelen, struct vnode *newdir, const char *newname, size_t newnamelen)
+    int ret = old_res_vnode->vn_ops->rename(old_res_vnode, *old_name, *old_namelen,  new_res_vnode, *new_name, *new_namelen);
+    if (ret != 0) {
+        return ret;
+    }
+    vunlock_in_order(old_res_vnode, new_res_vnode);
+    vput(&old_res_vnode);
+    vput(&new_res_vnode);
+    //NOT_YET_IMPLEMENTED("VFS: do_rename");
+    return 0;
 }
 
 /* Set the current working directory to the directory represented by path.
@@ -260,10 +722,26 @@ long do_rename(const char *oldpath, const char *newpath)
  *  - Remember that p_cwd should not be locked upon return from this function.
  *  - (If doing MTP, must protect access to p_cwd)
  */
-long do_chdir(const char *path)
+long do_chdir(const char *path) /// locks and refcounts??
 {
-    NOT_YET_IMPLEMENTED("VFS: do_chdir");
-    return -1;
+    vnode_t **res_vnode = NULL;
+    vlock(curproc->p_cwd);
+    long ret = namev_resolve(curproc->p_cwd, path, res_vnode);
+    if (ret != 0) {
+        return ret;
+    }
+    // check if path is a directory
+    if (!S_ISDIR((*res_vnode)->vn_mode)) {
+        //vput(*res_vnode);
+        return -ENOTDIR;
+    }
+
+    curproc->p_cwd = *res_vnode;
+    vref(*res_vnode);
+    vunlock(curproc->p_cwd);
+
+    //NOT_YET_IMPLEMENTED("VFS: do_chdir");
+    return 0;
 }
 
 /*
@@ -282,8 +760,26 @@ long do_chdir(const char *path)
  */
 ssize_t do_getdent(int fd, struct dirent *dirp)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_getdent");
-    return -1;
+    file_t *file = fget(fd);
+    // check if file is valid
+    if (file == NULL) {
+        return -EBADF;
+    } else if (file->f_mode == 0) {
+        return -EBADF;
+    } else if (!S_ISDIR(file->f_vnode->vn_mode)) {
+        return -ENOTDIR;
+    }
+
+    int ret = file->f_vnode->vn_ops->readdir(file->f_vnode, file->f_pos, dirp);
+    if (ret > 0) {
+        file->f_pos += ret;
+        return sizeof(dirent_t);
+    } else {
+        return ret;
+    }
+
+    //NOT_YET_IMPLEMENTED("VFS: do_getdent");
+    // return -1;
 }
 
 /*
@@ -301,8 +797,41 @@ ssize_t do_getdent(int fd, struct dirent *dirp)
  */
 off_t do_lseek(int fd, off_t offset, int whence)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_lseek");
-    return -1;
+    file_t *file = fget(fd);
+    // check if file is valid
+    if (file == NULL) {
+        return -EBADF;
+    } else if (file->f_mode == 0) {
+        fput(&file);
+        return -EBADF;
+    }
+
+    // check if whence is valid
+    if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END) {
+        fput(&file);
+        return -EINVAL;
+    }
+
+    int pos;
+    // handle whence
+    if (whence == SEEK_SET) {
+        pos = offset;
+    } else if (whence == SEEK_CUR) {
+        pos = file->f_pos + offset;
+    } else if (whence == SEEK_END) {
+        vlock(file->f_vnode);
+        pos = file->f_vnode->vn_len + offset;
+        vunlock(file->f_vnode); /// is this right?
+    }
+
+    if (pos < 0){
+        fput(&file);
+        return -EINVAL;
+    }
+
+    //NOT_YET_IMPLEMENTED("VFS: do_lseek");
+    fput(&file); /// fput after anytimeyou call fget
+    return file->f_pos = pos;
 }
 
 /* Use buf to return the status of the file represented by path.
@@ -312,8 +841,24 @@ off_t do_lseek(int fd, off_t offset, int whence)
  */
 long do_stat(const char *path, stat_t *buf)
 {
-    NOT_YET_IMPLEMENTED("VFS: do_stat");
-    return -1;
+    vnode_t *res_vnode = NULL;
+
+    //vlock(&curproc->p_mtx);
+    long ret = namev_resolve(curproc->p_cwd, path, &res_vnode);
+    if (ret != 0) {
+        //vunlock(&curproc->p_mtx);
+        return ret;
+    }
+    ret = res_vnode->vn_ops->stat(res_vnode, buf); //// type?
+    if (ret != 0) {
+        //vunlock(&curproc->p_mtx);
+        vput(&res_vnode);
+        return ret;
+    }
+    vput(&res_vnode);
+
+    //NOT_YET_IMPLEMENTED("VFS: do_stat");
+    return 0;
 }
 
 #ifdef __MOUNTING__

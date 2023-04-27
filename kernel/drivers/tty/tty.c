@@ -59,7 +59,7 @@ void tty_init()
  *
  * You should first lock the read mutex of the tty. You should
  * then wait until there is something in the line discipline's buffer and only
- * read from the ldisc's buffer if there are new characters.
+ * read from the ldisc's buffer if there are new characters. /// assuming new characters added to the end of the buffer?
  *
  * To prevent being preempted, you should set IPL using INTR_KEYBOARD
  * correctly and revert it once you are done.
@@ -70,11 +70,26 @@ void tty_init()
  * @param  count the maximum number of bytes to read
  * @return       the number of bytes actually read into the buffer
  */
-ssize_t tty_read(chardev_t *cdev, size_t pos, void *buf, size_t count)
+ssize_t tty_read(chardev_t *cdev, size_t pos, void *buf, size_t count) 
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: tty_read");
-    return -1;
+    tty_t *ttys = cd_to_tty(cdev);
+    kmutex_lock(&ttys->tty_read_mutex); /// correct mutex and tty? cdv has no lock field + how to fix the type error?
+    uint32_t old_ipl = intr_setipl(INTR_KEYBOARD); /// correct call?
+    uint32_t bytes_read = 0;
+    long wait_ret = ldisc_wait_read(&ttys->tty_ldisc, &ttys->tty_lock);
+    if (wait_ret != 0){
+        bytes_read = wait_ret;
+    } else {
+        ldisc_read(&ttys->tty_ldisc, buf, count);
+    }
+    intr_setipl(old_ipl);
+    kmutex_unlock(&ttys->tty_read_mutex);
+    
+    //NOT_YET_IMPLEMENTED("DRIVERS: tty_read");
+    return bytes_read;
 }
+
+
 
 /**
  * Writes to the tty from the buffer.
@@ -91,8 +106,15 @@ ssize_t tty_read(chardev_t *cdev, size_t pos, void *buf, size_t count)
  */
 ssize_t tty_write(chardev_t *cdev, size_t pos, const void *buf, size_t count)
 {
+    tty_t *ttys = cd_to_tty(cdev);
+    kmutex_lock(&ttys->tty_write_mutex); /// correct mutex and tty? cdv has no lock field + how to fix the type error?
+    uint32_t old_ipl = intr_setipl(INTR_KEYBOARD); /// correct call?
+    ssize_t bytes_written = vterminal_write(&ttys->tty_vterminal, buf, count); /// ok with return type and parameters?
+    intr_setipl(old_ipl);
+    kmutex_lock(&ttys->tty_write_mutex);
+
     NOT_YET_IMPLEMENTED("DRIVERS: tty_write");
-    return -1;
+    return bytes_written;
 }
 
 static void tty_receive_char_multiplexer(uint8_t c)
@@ -103,7 +125,7 @@ static void tty_receive_char_multiplexer(uint8_t c)
     {
         if (c - F1 < NTERMS)
         {
-            /* TODO: this is totally unsafe... Fix it */
+            /* TODO: this is totally unsafe... Fix it */ 
             active_tty = (unsigned)c - F1;
             tty = ttys[active_tty];
             spinlock_lock(&tty->tty_lock);

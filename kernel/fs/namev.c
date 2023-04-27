@@ -76,8 +76,14 @@ long namev_is_descendant(vnode_t *a, vnode_t *b)
 long namev_lookup(vnode_t *dir, const char *name, size_t namelen,
                   vnode_t **res_vnode)
 {
-    NOT_YET_IMPLEMENTED("VFS: namev_lookup");
-    return 0;
+    if (dir->vn_ops == NULL || !S_ISDIR(dir->vn_mode)) {
+        return -ENOTDIR;
+    }
+
+    long ret = dir->vn_ops->lookup(dir, name, namelen, res_vnode); 
+    //vnode_ops_t f
+    //NOT_YET_IMPLEMENTED("VFS: namev_lookup");
+    return ret;
 }
 
 /*
@@ -164,7 +170,7 @@ static const char *namev_tokenize(const char **search, size_t *len)
  *  - Use namev_lookup() to handle each individual lookup. When looping, be
  *    careful about locking and refcounts, and make sure to clean up properly
  *    upon failure.
- *  - namev_lookup() should return with the found vnode unlocked, unless the
+ *  - namev_lookup() should return with the found vnode unlocked, unless the /// locked otherwise? also when to use base even?
  *    found vnode is the same as the given directory (e.g. "/./."). Be mindful
  *    of this special case, and any locking/refcounting that comes with it.
  *  - When parsing the path, you do not need to implement hand-over-hand
@@ -187,9 +193,83 @@ static const char *namev_tokenize(const char **search, size_t *len)
 long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
                const char **name, size_t *namelen)
 {
-    NOT_YET_IMPLEMENTED("VFS: namev_dir");
+    if (path == NULL || path[0] == '\0') {
+        return -EINVAL;
+    }
+
+    // if (base == curproc->p_cwd || base == NULL) { /// should I have the || base == NULL
+    //     /// what to do here?
+    // }
+    size_t cur_len;
+    size_t next_len;
+    vnode_t *basenode;
+    const char *nv_path;
+    vnode_t **nv_res_vnode;
+    const char **nv_name;
+    size_t *nv_namelen;
+
+    if (*path == '/'){ // moved to before
+        basenode = vfs_root_fs.fs_root;
+    } else {
+        basenode = base;
+    }
+
+    char *curname = (char *)namev_tokenize(&path, &cur_len); /// wrong args!!
+    // if (*path == '/'){
+    //     basenode = vfs_root_fs.fs_root;
+    // } else {
+    //     basenode = base;
+    // }
+
+    char *nextname = (char *)namev_tokenize(&path, &next_len);
+
+    vlock(basenode);
+    vref(basenode); 
+    while (nextname != NULL) {
+        vnode_t *revnode; 
+        int err = namev_lookup(basenode, curname, cur_len, &revnode);
+        //vunlock(basenode);
+        if (err != 0) {
+            vput_locked(&basenode);
+            return err;
+        }
+
+        if (basenode == revnode){ // a/b/./c
+            vput(&revnode);
+            //vput_locked(&basenode);
+        } else{
+            // vput(&revnode);
+            vput_locked(&basenode);
+            vlock(revnode);
+        }
+        basenode = revnode;
+        curname = nextname;
+        cur_len = next_len;
+        nextname = (char *)namev_tokenize(&path, &next_len);
+    }
+        
+    /// set all back to original
+    *res_vnode = basenode;
+    *name = curname;
+    *namelen = cur_len;
+
+/**
+ * path: b////////
+ * path: a/b/c -> b doesn't exist
+*/
+
+/// a/b/c
+// lookup a, then b, then c, which is the last one, so set b as revnode, c name, propagate error caases via lookeup
+/// VFS_root_fs.fs_root resvnode for /a...so if starts with a slash 
+// namevtokenize returns 3 things, arg
+
+
+    //NOT_YET_IMPLEMENTED("VFS: namev_dir");
     return 0;
 }
+
+
+
 
 /*
  * Open the file specified by `base` and `path`, or create it, if necessary.
@@ -215,19 +295,72 @@ long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
  *    ramfs_mknod() to confirm that the name should be null-terminated.
  */
 long namev_open(vnode_t *base, const char *path, int oflags, int mode,
-                devid_t devid, struct vnode **res_vnode)
+                devid_t devid, struct vnode **res_vnode) 
 {
-    NOT_YET_IMPLEMENTED("VFS: namev_open");
-    return 0;
-}
+    // use lookup to see if exists on parent (which I get w namevdir(base), then do lookup from parent) /// lock parent mutex before calling lookup, unlock after + refcount of parent, calling vput if error case
+    // if ENOENT and if OCREAT specified and ENAMETOOLONG error if base file name > namelen macro:
+    // create the direct  dir->vn_ops->mknode
+    // else error
 
+    // if not trailing slash AND S_ISDIR() is directory
+    // decrease child refcount by 1 
+    // ENOTDIR
+
+    // return res_node of child
+    const char *nv_name = NULL;
+    size_t nv_namelen;
+    vnode_t *dirnode = NULL;
+    vnode_t *filenode = NULL;
+    long res;
+
+    if ((oflags & O_CREAT) && (path[strlen(path) - 1] == '/')) {
+        return -EINVAL;
+    }
+    res = namev_dir(base, path, &dirnode, &nv_name, &nv_namelen);
+    if (res != 0) {
+        return res;
+    }
+    if (nv_namelen > NAME_LEN) {
+        vput(&dirnode);
+        return -ENAMETOOLONG;
+    }
+
+    vlock(dirnode);
+    res = namev_lookup(dirnode, nv_name, nv_namelen, &filenode);
+    if (res == -ENOENT && (oflags & O_CREAT)) {
+        res = dirnode->vn_ops->mknod(dirnode, nv_name, nv_namelen, mode, devid, &filenode);
+        if (res != 0) {
+            vunlock(dirnode);
+            vput(&dirnode);
+            vput(&filenode);
+            return res;
+        }
+    } else if (res != 0) {
+        vunlock(dirnode);
+        vput(&dirnode);
+        //vput(&filenode);
+        return res;
+    }
+    vunlock(dirnode);
+
+    if (S_ISDIR(filenode->vn_mode) && (path[strlen(path) - 1] != '/')) {
+        vput(&dirnode);
+        vput(&filenode);
+        return -ENOTDIR;
+    }
+
+    vput(&dirnode);
+    *res_vnode = filenode;
+    return 0;
+    //NOT_YET_IMPLEMENTED("VFS: namev_open");
+}
 /*
  * Wrapper around namev_open with O_RDONLY and 0 mode/devid
  */
-long namev_resolve(vnode_t *base, const char *path, vnode_t **res_vnode)
-{
-    return namev_open(base, path, O_RDONLY, 0, 0, res_vnode);
-}
+// long namev_resolve(vnode_t *base, const char *path, vnode_t **res_vnode)
+// {
+//     return namev_open(base, path, O_RDONLY, 0, 0, res_vnode);
+// }
 
 #ifdef __GETCWD__
 /* Finds the name of 'entry' in the directory 'dir'. The name is writen

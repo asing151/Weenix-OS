@@ -503,8 +503,11 @@ void sata_init()
 long sata_read_block(blockdev_t *bdev, char *buf, blocknum_t block,
                      size_t block_count)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: sata_read_block");
-    return -1;
+    //hba_port_t *port = bdev->bd_private;
+   
+    ahci_do_operation(bdev_to_ata_disk(bdev)->port, block * SATA_SECTORS_PER_BLOCK, block_count * SATA_SECTORS_PER_BLOCK, (void *)buf, 0);
+    //NOT_YET_IMPLEMENTED("DRIVERS: sata_read_block");
+    return 0;
 }
 
 /**
@@ -522,6 +525,7 @@ long sata_read_block(blockdev_t *bdev, char *buf, blocknum_t block,
 long sata_write_block(blockdev_t *bdev, const char *buf, blocknum_t block,
                       size_t block_count)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: sata_write_block");
-    return -1;
+    ahci_do_operation(bdev_to_ata_disk(bdev)->port, block * SATA_SECTORS_PER_BLOCK, block_count * SATA_SECTORS_PER_BLOCK, (void *)buf, 1);
+    //NOT_YET_IMPLEMENTED("DRIVERS: sata_write_block");
+    return 0;
 }

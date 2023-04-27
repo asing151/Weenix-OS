@@ -295,7 +295,7 @@ void sched_sleep_on(ktqueue_t *q, spinlock_t *lock)
     KASSERT(curthr->kt_state == KT_ON_CPU); /// need this?
     int old_ipl = intr_setipl(IPL_HIGH);
     curthr->kt_state = KT_SLEEP;
-    curthr->kt_wchan = q;
+    //curthr->kt_wchan = q;
     sched_switch(q, lock);
     intr_setipl(old_ipl);
     NOT_YET_IMPLEMENTED("PROCS: sched_sleep_on");
