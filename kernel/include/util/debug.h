@@ -221,7 +221,7 @@ extern spinlock_t debug_lock;
         }                                              \
     } while (0)
 
-#define dbginfo(mode, func, data)                      \
+#define dbginfo(mode, func, data)                     \
     do                                                 \
     {                                                  \
         if (dbg_active(mode))                          \

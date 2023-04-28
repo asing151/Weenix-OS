@@ -220,12 +220,16 @@ proc_t *proc_create(const char *name)
     list_insert_tail(&proc->p_pproc->p_children, &proc->p_child_link);
 
     // for VFS:
-
+    
     for (int i = 0; i < NFILES; i++)
     {
+        // const void *filler = NULL
+        dbginfo(DBG_PROC, proc_info, curproc->p_vmmap);
         if (curproc->p_files[i] != NULL)
         {
+            
             proc->p_files[i] = curproc->p_files[i];
+
             fref(proc->p_files[i]);
         }
     }
