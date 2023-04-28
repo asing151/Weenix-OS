@@ -35,6 +35,8 @@
 #include "test/driverstest.h"
 #include "test/proctest.h"
 #include "test/vmtest.h"
+#include "test/kshell/kshell.h"
+
 
 GDB_DEFINE_HOOK(boot)
 
@@ -42,6 +44,7 @@ GDB_DEFINE_HOOK(initialized)
 
 GDB_DEFINE_HOOK(shutdown)
 
+int vfstest_main(int argc, char **argv);
 static void initproc_start();
 
 typedef void (*init_func_t)();
@@ -156,13 +159,27 @@ static void make_devices()
  */
 static void *initproc_run(long arg1, void *arg2)
 {
-    //proctest_main(0, NULL);
-    //driverstest_main(0, NULL);
+    proctest_main(0, NULL);
+    driverstest_main(0, NULL);
 #ifdef __VFS__
     dbg(DBG_INIT, "Initializing VFS...\n");
     vfs_init();
     make_devices();
 #endif
+    //vfstest_main(1, NULL);
+    /// ifdef drivers put here
+// #ifdef __DRIVERS__
+//     char name[32] = {0};
+//     for (long i = 0; i < __NTERMS__; i++)
+//     {
+//         snprintf(name, sizeof(name), "kshell%ld", i);
+//         proc_t *proc = proc_create("ksh");
+//         kthread_t *thread = kthread_create(proc, kshell_proc_run, i, NULL);
+//         sched_make_runnable(thread);
+//     }
+// #endif
+    // while (do_waitpid(-1, &status, 0) != -ECHILD);
+
     return NULL;
 }
 

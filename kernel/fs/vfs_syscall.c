@@ -720,7 +720,7 @@ long do_rename(const char *oldpath, const char *newpath)
 long do_chdir(const char *path) /// locks and refcounts??
 {
     vnode_t **res_vnode = NULL;
-    vlock(curproc->p_cwd);
+    //vlock(curproc->p_cwd);
     long ret = namev_resolve(curproc->p_cwd, path, res_vnode);
     if (ret != 0) {
         return ret;
@@ -730,10 +730,10 @@ long do_chdir(const char *path) /// locks and refcounts??
         //vput(*res_vnode);
         return -ENOTDIR;
     }
-
+    vput(&curproc->p_cwd);
     curproc->p_cwd = *res_vnode;
-    vref(*res_vnode);
-    vunlock(curproc->p_cwd);
+    
+    //vunlock(curproc->p_cwd);
 
     //NOT_YET_IMPLEMENTED("VFS: do_chdir");
     return 0;

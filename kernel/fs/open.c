@@ -60,8 +60,60 @@ long get_empty_fd(int *fd)
  * If a vnode represents a chardev or blockdev, then the appropriate field of
  * the vnode->vn_dev union will point to the device. Otherwise, the union will be NULL.
  */
-long do_open(const char *filename, int oflags)
+long do_open(const char *filename, int oflags) 
 {
-    NOT_YET_IMPLEMENTED("VFS: do_open");
-    return -1;
+    if ((oflags != O_RDONLY) && (oflags != O_WRONLY) && (oflags != O_RDWR) & (oflags != O_APPEND)){
+        return -EINVAL;
+    }
+
+    long state = 0;
+    int *fd = NULL;
+    state = get_empty_fd(fd);
+    if (state < 0){
+        return state;
+    }
+
+    struct vnode *vnode;
+    state = namev_open(curproc->p_cwd, filename, oflags, S_IFREG, 0, &vnode);
+    if (state < 0){
+        return state;
+    }
+
+    if (S_ISDIR(vnode->vn_mode) && (oflags & O_WRONLY || oflags & O_RDWR)){
+        return -EISDIR;
+    }
+
+    if (vnode->vn_mode == S_IFBLK || vnode->vn_mode == S_IFCHR){
+        if (vnode->vn_dev.blockdev == NULL){
+            return -ENXIO;
+        }
+    }
+
+    int mode = 0;
+    if (oflags & O_RDONLY){
+        mode = FMODE_READ;
+    } else if (oflags & O_WRONLY){
+        mode = FMODE_WRITE;
+    } else if (oflags & O_RDWR){
+        mode = FMODE_READ | FMODE_WRITE;
+    } else if (oflags & O_APPEND){
+        mode = FMODE_APPEND;
+    }
+
+    if (oflags & O_TRUNC && S_ISREG(vnode->vn_mode)){
+        vnode->vn_ops->truncate_file(vnode);
+    }
+
+    file_t* file = NULL;
+    file = fcreate(mode, vnode, *fd);
+    if (file == NULL){ /// correct?
+        return -ENOMEM;
+    }
+
+    vput(&vnode);
+
+    return *fd;
+    
+    //NOT_YET_IMPLEMENTED("VFS: do_open");
+    //return -1;
 }

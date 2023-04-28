@@ -218,6 +218,29 @@ proc_t *proc_create(const char *name)
     }
     list_insert_tail(&proc_list, &proc->p_list_link);
     list_insert_tail(&proc->p_pproc->p_children, &proc->p_child_link);
+
+    // for VFS:
+
+    for (int i = 0; i < NFILES; i++)
+    {
+        if (curproc->p_files[i] != NULL)
+        {
+            proc->p_files[i] = curproc->p_files[i];
+            fref(proc->p_files[i]);
+        }
+    }
+
+    if (curproc->p_cwd != NULL)
+    {
+        proc->p_cwd = curproc->p_cwd;
+        vref(proc->p_cwd);
+    } else {
+        proc->p_cwd = NULL;
+    }
+
+    // // for VM:
+    // proc->p_vmmap = vmmap_clone(curproc->p_vmmap);
+
     return proc;
 }
 
@@ -268,6 +291,20 @@ void proc_cleanup(long status)
     }
     proc->p_state = PROC_DEAD; 
     proc->p_status = status;
+
+#ifdef __VFS__
+    for (int fd = 0; fd < NFILES; fd++)
+    {
+        if (proc->p_files[fd])
+            fput(proc->p_files + fd);
+    }
+    if (proc->p_cwd)
+    {
+        vput(&proc->p_cwd);
+    }
+#endif
+
+
     /// should I call sched_switch here?
 }
 

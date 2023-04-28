@@ -249,6 +249,7 @@ long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
     }
         
     /// set all back to original
+    vunlock(basenode);
     *res_vnode = basenode;
     *name = curname;
     *namelen = cur_len;
