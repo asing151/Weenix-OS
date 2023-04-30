@@ -15,7 +15,8 @@ void file_init(void)
 
 void fref(file_t *f)
 {
-    KASSERT(f->f_mode <= FMODE_MAX_VALUE && f->f_vnode);
+    KASSERT(f->f_vnode);
+    KASSERT(f->f_mode <= FMODE_MAX_VALUE);
 
     f->f_refcount++;
 

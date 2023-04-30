@@ -224,6 +224,7 @@ proc_t *proc_create(const char *name)
     for (int i = 0; i < NFILES; i++)
     {
         // const void *filler = NULL
+        //fget(i);
         dbginfo(DBG_PROC, proc_info, curproc->p_vmmap);
         if (curproc->p_files[i] != NULL)
         {
@@ -231,9 +232,10 @@ proc_t *proc_create(const char *name)
             proc->p_files[i] = curproc->p_files[i];
 
             fref(proc->p_files[i]);
+        } else {
+            proc->p_files[i] = NULL;
         }
     }
-
     if (curproc->p_cwd != NULL)
     {
         proc->p_cwd = curproc->p_cwd;
@@ -242,7 +244,7 @@ proc_t *proc_create(const char *name)
         proc->p_cwd = NULL;
     }
 
-    // // for VM:
+    // for VM:
     // proc->p_vmmap = vmmap_clone(curproc->p_vmmap);
 
     return proc;
@@ -509,6 +511,13 @@ pid_t do_waitpid(pid_t pid, int *status, int options) /// is the parent process 
                 sched_sleep_on(&curproc->p_wait, NULL);
             }
             
+        }
+
+    return 0;
+    }
+    return 0;
+}
+
             // rest not needed
             
          
@@ -527,14 +536,6 @@ pid_t do_waitpid(pid_t pid, int *status, int options) /// is the parent process 
         //         }
         //     }
         // }
-        }
-
-    return 0;
-
-    }
-    return 0;
-
-}
 
 /*
  * Wrapper around kthread_exit.

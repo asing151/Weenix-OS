@@ -55,6 +55,45 @@
 long do_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off,
              void **ret)
 {
+    // file_t *file;
+    // vnode_t *vnode;
+    // vmarea_t *vma;
+    // int err;
+
+    // checking for EACCES errors
+    // if file descriptor refers to a non-regular file
+    
+    // file = fget(fd);
+    // if (file == NULL) {
+    //     if (flags & MAP_ANON) {
+    //         vnode = NULL;
+    //     } else {
+    //         dbg(DBG_PRINT, "(GRADING3D 1)\n");
+    //         return -EBADF; /// no vnode associated with the file descriptor right?
+    //     }
+    // } 
+    // else {
+    //     if (file->f_vnode->vn_mode != S_IFREG) { 
+    //         dbg(DBG_PRINT, "(GRADING3D 1)\n");
+    //         return -EACCES;
+    //     }
+    //     if (flags & MAP_SHARED) {
+    //         if (file->f_mode != FMODE_READ && file->f_mode != FMODE_WRITE) {
+    //             dbg(DBG_PRINT, "(GRADING3D 1)\n");
+    //             return -EACCES;
+    //         }
+    //     } else {
+    //         if (file->f_mode != FMODE_READ) {
+    //             dbg(DBG_PRINT, "(GRADING3D 1)\n");
+    //             return -EACCES;
+    //         }
+    //     }
+    //     vnode = file->f_vnode;
+    // }
+
+    // a file mapping was requested, but fd is not open for reading. 
+
+
     NOT_YET_IMPLEMENTED("VM: do_mmap");
     return -1;
 }
