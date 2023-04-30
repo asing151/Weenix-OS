@@ -315,8 +315,12 @@ void sched_sleep_on(ktqueue_t *q, spinlock_t *lock)
 void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
 {
     /// any error checking needed here?
-    *ktp = NULL;
-    if (q->tq_size > 0)
+    // *ktp = NULL;
+
+    if (q->tq_size == 0)
+    {
+        return;
+    } else if (q->tq_size > 0)
     {
         kthread_t *thr = ktqueue_dequeue(q);
         if (ktp != NULL)
@@ -325,8 +329,7 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
         }
         if (thr != NULL){
             sched_make_runnable(thr);
-        }
-        
+        } 
     }
     //NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
 }
@@ -340,7 +343,7 @@ void sched_broadcast_on(ktqueue_t *q)
     {
         sched_wakeup_on(q, NULL);
     }
-    NOT_YET_IMPLEMENTED("PROCS: sched_broadcast_on");
+    //NOT_YET_IMPLEMENTED("PROCS: sched_broadcast_on");
 }
 
 /*===============
