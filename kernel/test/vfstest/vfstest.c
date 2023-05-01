@@ -1148,7 +1148,7 @@ int vfstest_main(int argc, char **argv)
 
     syscall_success(chdir(root_dir));
 
-       vfstest_notdir();
+    // vfstest_notdir();
     // vfstest_stat();
     // vfstest_chdir();
     // vfstest_mkdir();

@@ -199,14 +199,14 @@ long s5fs_mount(fs_t *fs)
  */
 static void s5fs_read_vnode(fs_t *fs, vnode_t *vn)
 {
-//     s5_node_t s5_node = VNODE_TO_S5NODE(vn);
-//     s5fs_t *s5fs = FS_TO_S5FS(fs);
-//     pframe_t *pf;
-//     s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->v_ino), 0, &pf);
-//     s5_inode_t *inode = (s5_inode_t *)(pf->pf_addr + S5_INODE_OFFSET(vn->v_ino));
-//     s5_node->inode = inode; //// memcopy instead
-//     s5_node->dirtxied_inode = 0;
-//     s5_release_disk_block(&pf);/// release here or later?
+    // s5_node_t s5_node = VNODE_TO_S5NODE(vn);
+    // s5fs_t *s5fs = FS_TO_S5FS(fs);
+    // pframe_t *pf;
+    // s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->v_ino), 0, &pf);
+    // s5_inode_t *inode = (s5_inode_t *)(pf->pf_addr + S5_INODE_OFFSET(vn->v_ino));
+    // s5_node->inode = inode; //// memcopy instead
+    // s5_node->dirtxied_inode = 0;
+    // s5_release_disk_block(&pf);/// release here or later?
 
 // // #define S_IFCHR 0x0100 /* character special */
 // // #define S_IFDIR 0x0200 /* directory */
@@ -250,12 +250,14 @@ static void s5fs_read_vnode(fs_t *fs, vnode_t *vn)
 //         panic("s5fs_read_vnode: unknown mode");
 //     }
 
-//     //// else case only ops n mode
+// //     //// else case only ops n mode
 
 
-//     vn->vn_len = inode->s5_size;
+//     vn->vn_len = inode->s5_size; /// why can't we access inode->s5_size?
 //     vn->vn_mode = inode->s5_type;
-     /// else case needed?
+//     vn->vn_ops = &s5fs_file_vops; 
+
+//      /// else case needed?
 
     NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
 }
@@ -358,9 +360,9 @@ static ssize_t s5fs_read(vnode_t *vnode, size_t pos, void *buf, size_t len)
 static ssize_t s5fs_write(vnode_t *vnode, size_t pos, const void *buf,
                           size_t len)
 {
-    //KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
+    // KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
 
-    //return s5_write_file(vnode, pos, buf, len);
+    // return s5_write_file(vnode, pos, buf, len);
     NOT_YET_IMPLEMENTED("S5FS: s5fs_write");
     return -1;
 }
@@ -372,7 +374,7 @@ static ssize_t s5fs_write(vnode_t *vnode, size_t pos, const void *buf,
 static long s5fs_mmap(vnode_t *file, mobj_t **ret)
 {
     // add a reference to the underlying mobj and return it through ret
-    //file->vn_mobj = &ret; /// this is it?
+    // file->vn_mobj = &ret; /// this is it?
     NOT_YET_IMPLEMENTED("VM: s5fs_mmap");
     return 0;
 }
@@ -411,14 +413,10 @@ static long s5fs_mknod(struct vnode *dir, const char *name, size_t namelen,
 
     // s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
     // s5_node_t s5_node;
-    // int err = s5_alloc_inode(s5fs, mode, devid, &s5_node);
+    // int alloc = s5_alloc_inode(s5fs, mode, &s5_node);
 
     // vnode_t *vnode;
-    // err = vget(dir->vn_fs, s5_node, &vnode);
-    // if (err < 0)
-    // {
-    //     return err;
-    // }
+    // vnode = vget(dir->vn_fs, s5_node, &vnode);
 
     // err = s5_link(dir, name, namelen, vnode);
     // if (err < 0)

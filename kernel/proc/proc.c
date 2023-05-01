@@ -302,7 +302,7 @@ void proc_cleanup(long status)
     for (int fd = 0; fd < NFILES; fd++)
     {
         if (proc->p_files[fd])
-            fput(proc->p_files + fd);
+            do_close(fd);
     }
     if (proc->p_cwd)
     {

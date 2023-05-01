@@ -319,7 +319,10 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
 
     if (q->tq_size == 0)
     {
-        return;
+        if (ktp != NULL)
+        {
+            *ktp = NULL;
+        }
     } else if (q->tq_size > 0)
     {
         kthread_t *thr = ktqueue_dequeue(q);

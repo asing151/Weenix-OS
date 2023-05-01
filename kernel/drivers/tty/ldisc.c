@@ -184,6 +184,6 @@ size_t ldisc_get_current_line_raw(ldisc_t *ldisc, char *s)
         ldisc->ldisc_tail = (ldisc->ldisc_tail + 1) % LDISC_BUFFER_SIZE;
         i++;
     }
-    NOT_YET_IMPLEMENTED("DRIVERS: ldisc_get_current_line_raw");
+    //NOT_YET_IMPLEMENTED("DRIVERS: ldisc_get_current_line_raw");
     return 0;
 }

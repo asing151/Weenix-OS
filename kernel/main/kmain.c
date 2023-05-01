@@ -166,7 +166,7 @@ static void *initproc_run(long arg1, void *arg2)
     vfs_init();
     make_devices();
 #endif
-    //vfstest_main(1, NULL);
+    // vfstest_main(1, NULL);
     /// ifdef drivers put here
 // #ifdef __DRIVERS__
 //     char name[32] = {0};

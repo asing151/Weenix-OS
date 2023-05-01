@@ -323,6 +323,7 @@ long do_mkdir(const char *path)
 
     } else {
         vput_locked(&parent_vnode);
+        vput(&res_vnode);
         return res;
     }
 
