@@ -156,7 +156,7 @@ long do_dup(int fd)
     if (ret_fd != 0) {
         return ret_fd;
     }
-    fref(file);
+    //fref(file);
 
     /// should i do this? :
     curproc->p_files[new_fd] = file;
@@ -190,16 +190,21 @@ long do_dup2(int ofd, int nfd) /// this is all right?
     }
 
     if (curproc->p_files[nfd] != NULL){
-        fput(&curproc->p_files[nfd]);
+        long ret = do_close(nfd);
+        if (ret != 0) {
+            return ret;
+        }
+        //fput(&curproc->p_files[nfd]);
         // int ret = do_close(nfd);
         // if (ret != 0) {
         //     return ret;
         // }
     }
 
-    file_t *file = fget(ofd);
+    //file_t *file = fget(ofd);
 
-    curproc->p_files[nfd] = file;
+    curproc->p_files[nfd] = curproc->p_files[ofd];
+    fref(curproc->p_files[nfd]);
 
     //NOT_YET_IMPLEMENTED("VFS: do_dup2");
     return nfd;
@@ -570,9 +575,9 @@ long do_link(const char *oldpath, const char *newpath)
 
     long ret = namev_resolve(curproc->p_cwd, oldpath, &old_vnode);
     if (ret != 0) {
-        if (old_vnode != NULL) { //// comment this entire if check out?
-            vput(&old_vnode);
-        }
+        //if (old_vnode != NULL) { //// comment this entire if check out?
+            //vput(&old_vnode);
+        //}
         return ret;
     }
     if (S_ISDIR((old_vnode)->vn_mode)) {
@@ -602,25 +607,23 @@ long do_link(const char *oldpath, const char *newpath)
         return -ENOTDIR;
     }
     if (namelen > NAME_LEN) {
-        if (old_vnode != NULL) {
-            vput(&old_vnode);
-        }
-        if (new_vnode != NULL) {
-            vput(&new_vnode);
-        }
+        //if (old_vnode != NULL) {
+        vput(&old_vnode);
+       // }
+        //if (new_vnode != NULL) {
+        vput(&new_vnode);
+        //}
         return -ENAMETOOLONG;
     }
 
     vlock_in_order(old_vnode, new_vnode);
     long res = new_vnode->vn_ops->link(new_vnode, name, namelen, old_vnode);
     vunlock_in_order(old_vnode, new_vnode);
-    if (res != 0) {
-        if (old_vnode != NULL) {
-            vput(&old_vnode);
-        }
-        if (new_vnode != NULL) {
-            vput(&new_vnode);
-        }
+  
+    vput(&old_vnode);
+    vput(&new_vnode);
+
+    if (res != 0) {   
         return res;
     }
     return 0;
@@ -682,14 +685,19 @@ long do_rename(const char *oldpath, const char *newpath)
 
     long new_ret = namev_dir(curproc->p_cwd, newpath, &new_res_vnode, new_name, new_namelen);
     if (new_ret != 0) {
+        vput(&old_res_vnode);
         return new_ret;
     }
 
     if (!S_ISDIR(old_res_vnode->vn_mode) || !S_ISDIR(new_res_vnode->vn_mode)) {
+        vput(&old_res_vnode);
+        vput(&new_res_vnode);
         return -ENOTDIR;
     }
     
-    if (strlen(*old_name) > NAME_LEN || strlen(*new_name) > NAME_LEN) {
+    if (*old_namelen > NAME_LEN || *new_namelen > NAME_LEN) {
+        vput(&old_res_vnode);
+        vput(&new_res_vnode);
         return -ENAMETOOLONG;
     }
 
@@ -720,19 +728,20 @@ long do_rename(const char *oldpath, const char *newpath)
  */
 long do_chdir(const char *path) /// locks and refcounts??
 {
-    vnode_t **res_vnode = NULL;
+    vnode_t *res_vnode = NULL;
     //vlock(curproc->p_cwd);
-    long ret = namev_resolve(curproc->p_cwd, path, res_vnode);
+    long ret = namev_resolve(curproc->p_cwd, path, &res_vnode);
     if (ret != 0) {
         return ret;
     }
     // check if path is a directory
-    if (!S_ISDIR((*res_vnode)->vn_mode)) {
-        //vput(*res_vnode);
+    if (!S_ISDIR(res_vnode->vn_mode)) {
+        vput(&res_vnode);
         return -ENOTDIR;
     }
-    vput(&curproc->p_cwd);
-    curproc->p_cwd = *res_vnode;
+    vnode_t *old_vnode = curproc->p_cwd;
+    curproc->p_cwd = res_vnode;
+    vput(&old_vnode);
     
     //vunlock(curproc->p_cwd);
 
@@ -760,19 +769,30 @@ ssize_t do_getdent(int fd, struct dirent *dirp)
     // check if file is valid
     if (file == NULL) {
         return -EBADF;
-    } else if (file->f_mode == 0) {
+    } else if (!(file->f_mode & FMODE_READ)) { ///
+        fput(&file);
         return -EBADF;
     } else if (!S_ISDIR(file->f_vnode->vn_mode)) {
+        fput(&file);
         return -ENOTDIR;
     }
 
+    vlock(file->f_vnode); 
     int ret = file->f_vnode->vn_ops->readdir(file->f_vnode, file->f_pos, dirp);
-    if (ret > 0) {
-        file->f_pos += ret;
-        return sizeof(dirent_t);
-    } else {
+    if (ret < 0) {
+        //file->f_pos += ret;
+        vunlock(file->f_vnode);
+        fput(&file);
         return ret;
     }
+
+    vunlock(file->f_vnode);
+    fput(&file);
+
+    return sizeof(dirent_t);
+    // } else {
+    //     return ret;
+    // }
 
     //NOT_YET_IMPLEMENTED("VFS: do_getdent");
     // return -1;
@@ -797,10 +817,11 @@ off_t do_lseek(int fd, off_t offset, int whence)
     // check if file is valid
     if (file == NULL) {
         return -EBADF;
-    } else if (file->f_mode == 0) {
-        fput(&file);
-        return -EBADF;
     }
+    // } else if (!(file->f_mode & FMODE_READ)){
+    //     fput(&file);
+    //     return -EBADF;
+    // }
 
     // check if whence is valid
     if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END) {
@@ -825,9 +846,11 @@ off_t do_lseek(int fd, off_t offset, int whence)
         return -EINVAL;
     }
 
+    file->f_pos = pos;
+
     //NOT_YET_IMPLEMENTED("VFS: do_lseek");
     fput(&file); /// fput after anytimeyou call fget
-    return file->f_pos = pos;
+    return file->f_pos;
 }
 
 /* Use buf to return the status of the file represented by path.

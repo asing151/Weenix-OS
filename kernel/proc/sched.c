@@ -316,25 +316,46 @@ void sched_wakeup_on(ktqueue_t *q, kthread_t **ktp)
 {
     /// any error checking needed here?
     // *ktp = NULL;
-
-    if (q->tq_size == 0)
+    if (sched_queue_empty(q))
     {
         if (ktp != NULL)
         {
             *ktp = NULL;
         }
-    } else if (q->tq_size > 0)
-    {
-        kthread_t *thr = ktqueue_dequeue(q);
-        if (ktp != NULL)
-        {
-            *ktp = thr; /// is this a copy? or a pointer to a copy?
-        }
-        if (thr != NULL){
-            sched_make_runnable(thr);
-        } 
+        return;
     }
-    //NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
+
+    kthread_t *thr = ktqueue_dequeue(q);
+    if (ktp != NULL)
+    {
+        *ktp = thr; /// is this a copy? or a pointer to a copy?
+    }
+    sched_make_runnable(thr);
+
+
+    // if (q == NULL)
+    // {
+    //     return;
+    // }
+
+    // if (q->tq_size == 0)
+    // {
+    //     if (ktp != NULL)
+    //     {
+    //         *ktp = NULL;
+    //     }
+    // } else if (q->tq_size > 0)
+    // {
+    //     kthread_t *thr = ktqueue_dequeue(q);
+    //     if (ktp != NULL)
+    //     {
+    //         *ktp = thr; /// is this a copy? or a pointer to a copy?
+    //     }
+    //     if (thr != NULL){
+    //     sched_make_runnable(thr);
+    //    } 
+    // }
+    // //NOT_YET_IMPLEMENTED("PROCS: sched_wakeup_on");
 }
 
 /*

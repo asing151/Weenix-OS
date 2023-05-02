@@ -198,6 +198,11 @@ proc_t *proc_create(const char *name)
         return NULL;
     }
     pml4_t *pt = pt_create();
+    if (pt == NULL)
+    {
+        slab_obj_free(proc_allocator, proc);
+        return NULL;
+    }
 
     proc->p_pid = pid;
     list_init(&proc->p_threads);           
@@ -212,7 +217,7 @@ proc_t *proc_create(const char *name)
     sched_queue_init(&proc->p_wait);
 
 
-    if (pid == PID_INIT) /// place this earlier?
+    if (pid == PID_INIT) /// place this earlier? yes
     {
         proc_initproc = proc;
     }
@@ -220,21 +225,18 @@ proc_t *proc_create(const char *name)
     list_insert_tail(&proc->p_pproc->p_children, &proc->p_child_link);
 
     // for VFS:
+#ifdef __VFS__
     
     for (int i = 0; i < NFILES; i++)
     {
         // const void *filler = NULL
         //fget(i);
-        dbginfo(DBG_PROC, proc_info, curproc->p_vmmap);
-        if (curproc->p_files[i] != NULL)
+        //dbginfo(DBG_PROC, proc_info, curproc->p_vmmap);
+        proc->p_files[i] = curproc->p_files[i];
+        if (proc->p_files[i] != NULL)
         {
-            
-            proc->p_files[i] = curproc->p_files[i];
-
             fref(proc->p_files[i]);
-        } else {
-            proc->p_files[i] = NULL;
-        }
+        } 
     }
     if (curproc->p_cwd != NULL)
     {
@@ -243,6 +245,8 @@ proc_t *proc_create(const char *name)
     } else {
         proc->p_cwd = NULL;
     }
+
+#endif
 
     // for VM:
     // proc->p_vmmap = vmmap_clone(curproc->p_vmmap);
@@ -269,6 +273,8 @@ proc_t *proc_create(const char *name)
  */
 void proc_cleanup(long status)
 {
+
+
    // NOT_YET_IMPLEMENTED("PROCS: proc_cleanup");
     proc_t *proc = curproc;
     KASSERT(NULL != proc); /// do I need KASSERTS like this?
@@ -280,6 +286,20 @@ void proc_cleanup(long status)
     // KASSERT(NULL != proc->p_vmmap);
     // KASSERT(NULL != proc->p_cwd);
     // KASSERT(NULL != proc->p_files);
+    proc->p_state = PROC_DEAD; 
+    proc->p_status = status;
+
+#ifdef __VFS__
+    for (int fd = 0; fd < NFILES; fd++)
+    {
+        //if (proc->p_files[fd])
+        do_close(fd);
+    }
+    if (proc->p_cwd)
+    {
+        vput(&proc->p_cwd);
+    }
+#endif
 
     if (proc->p_pid == PID_INIT)
     {
@@ -291,24 +311,13 @@ void proc_cleanup(long status)
         {
             p->p_pproc = proc_initproc;
             // remove from whatever que it was on
-            list_insert_tail(&proc_initproc->p_children, &p->p_child_link); /// is this call correct?
+            //list_insert_tail(&proc_initproc->p_children, &p->p_child_link); /// is this call correct?
+            list_remove(&p->p_child_link);
+            list_insert_head(&proc_initproc->p_children, &p->p_child_link);
 
         }
     }
-    proc->p_state = PROC_DEAD; 
-    proc->p_status = status;
-
-#ifdef __VFS__
-    for (int fd = 0; fd < NFILES; fd++)
-    {
-        if (proc->p_files[fd])
-            do_close(fd);
-    }
-    if (proc->p_cwd)
-    {
-        vput(&proc->p_cwd);
-    }
-#endif
+    
 
 
     /// should I call sched_switch here?
@@ -430,7 +439,7 @@ void proc_destroy(proc_t *proc)
  * If pid is a positive integer, tries to clean up the process specified by pid.
  * If pid is -1, cleans up any child process of curproc that exits.
  *
- * Returns the pid of the child process that exited, or error cases:
+ * Returns the pid of thef child process that exited, or error cases:
  *  - ENOTSUP: pid is 0, a negative number not equal to -1,
  *      or options are specified (options does not equal 0)
  *  - ECHILD: pid is a positive integer but not a child of curproc, or

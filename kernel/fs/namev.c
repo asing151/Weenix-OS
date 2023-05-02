@@ -313,6 +313,7 @@ long namev_open(vnode_t *base, const char *path, int oflags, int mode,
     vnode_t *dirnode = NULL;
     vnode_t *filenode = NULL;
     long res;
+    
 
     if ((oflags & O_CREAT) && (path[strlen(path) - 1] == '/')) {
         return -EINVAL;
@@ -344,7 +345,7 @@ long namev_open(vnode_t *base, const char *path, int oflags, int mode,
     }
     vunlock(dirnode);
 
-    if (S_ISDIR(filenode->vn_mode) && (path[strlen(path) - 1] != '/')) {
+    if (proc_finishS_ISDIR(filenode->vn_mode) && (path[strlen(path) - 1] != '/')) {
         vput(&dirnode);
         vput(&filenode);
         return -ENOTDIR;
