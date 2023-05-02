@@ -277,9 +277,6 @@ long do_mkdir(const char *path)
 
     ret = namev_dir(curproc->p_cwd, path, &parent_vnode, &name, &namelen);
     if (ret != 0) {
-        if (parent_vnode != NULL) { // this ifchck not needed
-            vput(&parent_vnode);
-        }
         return ret;
     }
 
@@ -288,7 +285,7 @@ long do_mkdir(const char *path)
         vput(&parent_vnode);
         return -ENOTDIR;
     } 
-    if (namelen > NAME_LEN) {
+    if (namelen >= NAME_LEN) {
         vput(&parent_vnode);
         return -ENAMETOOLONG;
     }
@@ -317,18 +314,17 @@ long do_mkdir(const char *path)
         //     return -ENAMETOOLONG;
         // }
         long ret = parent_vnode->vn_ops->mkdir(parent_vnode, name, namelen, &res_vnode);
-        if (ret != 0) {
+        if (ret < 0) {
             //if (parent_vnode != NULL) { // if statement may not be needed
-                vput_locked(&parent_vnode);
-            } else {
-                vput(&res_vnode);
-                vput_locked(&parent_vnode);
-            }
-            return ret;
+            vput_locked(&parent_vnode);
+        } else {
+            vput(&res_vnode);
+            vput_locked(&parent_vnode);
+        }
+        return ret;
 
     } else {
         vput_locked(&parent_vnode);
-        vput(&res_vnode);
         return res;
     }
 
@@ -769,9 +765,6 @@ ssize_t do_getdent(int fd, struct dirent *dirp)
     // check if file is valid
     if (file == NULL) {
         return -EBADF;
-    } else if (!(file->f_mode & FMODE_READ)) { ///
-        fput(&file);
-        return -EBADF;
     } else if (!S_ISDIR(file->f_vnode->vn_mode)) {
         fput(&file);
         return -ENOTDIR;
@@ -780,12 +773,11 @@ ssize_t do_getdent(int fd, struct dirent *dirp)
     vlock(file->f_vnode); 
     int ret = file->f_vnode->vn_ops->readdir(file->f_vnode, file->f_pos, dirp);
     if (ret < 0) {
-        //file->f_pos += ret;
         vunlock(file->f_vnode);
         fput(&file);
         return ret;
     }
-
+    file->f_pos += ret;
     vunlock(file->f_vnode);
     fput(&file);
 
@@ -868,12 +860,15 @@ long do_stat(const char *path, stat_t *buf)
         //vunlock(&curproc->p_mtx);
         return ret;
     }
+    vlock(res_vnode);
     ret = res_vnode->vn_ops->stat(res_vnode, buf); //// type?
     if (ret != 0) {
         //vunlock(&curproc->p_mtx);
+        vlock(res_vnode);
         vput(&res_vnode);
         return ret;
     }
+    vlock(res_vnode);
     vput(&res_vnode);
 
     //NOT_YET_IMPLEMENTED("VFS: do_stat");

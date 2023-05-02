@@ -67,8 +67,8 @@ long do_open(const char *filename, int oflags)
     }
 
     long state = 0;
-    int *fd = NULL;
-    state = get_empty_fd(fd);
+    int fd = NULL;
+    state = get_empty_fd(&fd);
     if (state < 0){
         return state;
     }
@@ -105,14 +105,14 @@ long do_open(const char *filename, int oflags)
     }
 
     file_t* file = NULL;
-    file = fcreate(mode, vnode, *fd);
+    file = fcreate(mode, vnode, fd);
     if (file == NULL){ /// correct?
         return -ENOMEM;
     }
 
     vput(&vnode);
 
-    return *fd;
+    return fd;
     
     //NOT_YET_IMPLEMENTED("VFS: do_open");
     //return -1;

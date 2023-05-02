@@ -111,7 +111,7 @@ long do_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off,
 
     // // done with error checking
     // vnode = file->f_vnode;
-    // vma = vmmap_map(curproc->p_vmmap, vnode, ADDR_TO_PN(addr), ADDR_TO_PN(len), prot, flags, ADDR_TO_PN(off), VMMAP_DIR_HILO, &err);
+    // long ret = vmmap_map(curproc->p_vmmap, vnode, ADDR_TO_PN(addr), ADDR_TO_PN(len), prot, flags, ADDR_TO_PN(off), VMMAP_DIR_HILO, &vma);
     // if (vma == NULL) {
     //     return err;
     // }
