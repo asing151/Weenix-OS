@@ -55,6 +55,7 @@
 long do_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off,
              void **ret) /// else statements needed in error checking? /// use == or &?
 {
+    /// any locking or refcounts anywhere?
     // file_t *file;
     // vnode_t *vnode;
     // vmarea_t *vma;
@@ -146,9 +147,9 @@ long do_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off,
 long do_munmap(void *addr, size_t len)
 {
 
-    if ((uint32_t)addr % PAGE_SIZE != 0) {
-        return -EINVAL;
-    }
+    // if ((uint32_t)addr % PAGE_SIZE != 0) { /// how to check if alligned?
+    //     return -EINVAL;
+    // }
     if (len == 0) {
         return -EINVAL;
     }

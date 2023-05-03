@@ -27,14 +27,57 @@ void vmmap_init(void)
     vmarea_allocator = slab_allocator_create("vmarea", sizeof(vmarea_t));
     KASSERT(vmmap_allocator && vmarea_allocator);
 }
+/*In order to manage address spaces, you must maintain each process’ list of virtual memory areas. Each memory region is essentially a range 
+of virtual page numbers, a memory object, and the page offset into that memory object that the first page of the virtual memory area 
+corresponds to. These numbers are all stored at page resolution instead of byte (address) resolution because x86 paging manages memory at 
+page granularity. Therefore, defining sub-page level permissions wouldn't make sense since they would not be enforced by the memory management 
+unit (MMU).
+
+For example a memory region could span from page 2000 to 2005, be backed by a memory object corresponding to a file and have offset 3. In this 
+example, the virtual page 2000 (which is at address 2000*PAGE_SIZE) should contain the content of the 3rd page of the file (bytes 3*PAGE_SIZE 
+to 4*PAGE_SIZE - 1).
+
+You must keep the areas sorted by the start of their virtual page ranges and ensure that no two ranges overlap with each other. There will be 
+several edge cases (which are better documented in the code) where you will have to unmap a section of a virtual memory area, which could 
+require splitting an area or truncating the beginning or end of an area.
+
+*/
+
+/// any locking or counts in these functions?
 
 /*
  * Allocate and initialize a new vmarea using vmarea_allocator.
  */
 vmarea_t *vmarea_alloc(void)
 {
-    NOT_YET_IMPLEMENTED("VM: vmarea_alloc");
-    return NULL;
+    vmarea_t *vma = slab_obj_alloc(vmarea_allocator);
+    if (vma)
+    // /*    size_t vma_start; /* [starting vfn, 
+    // size_t vma_end;   /*  ending vfn) */
+    // size_t vma_off;   /* offset from beginning of vma_obj in pages */
+    //                   /* the reason this field is necessary is that 
+    //                      when files are mmap'ed, it doesn't have 
+    //                      to start from location 0. You could, for instance, 
+    //                      map pages 10-15 of a file, and vma_off would be 10. */
+
+    // int vma_prot;  /* permissions (protections) on mapping, see mman.h */
+    // int vma_flags; /* either MAP_SHARED or MAP_PRIVATE. It can also specify 
+    //                   MAP_ANON and MAP_FIXED */
+
+    // struct vmmap *vma_vmmap; /* address space that this area belongs to */
+    // struct mobj *vma_obj;    /* the memory object that corresponds to this address region */
+    // list_link_t vma_plink;   /* link on process vmmap maps list */
+    
+    {
+        memset(vma, 0, sizeof(vmarea_t));
+        list_link_init(&vma->vma_plink);
+        vma->vma_obj = NULL;
+        vma->vma_vmmap = NULL; /// set these and any other fields?
+    }
+    return vma;
+
+    //NOT_YET_IMPLEMENTED("VM: vmarea_alloc");
+    //return NULL;
 }
 
 /*
@@ -43,7 +86,17 @@ vmarea_t *vmarea_alloc(void)
  */
 void vmarea_free(vmarea_t *vma)
 {
-    NOT_YET_IMPLEMENTED("VM: vmarea_free");
+    list_remove(&vma->vma_plink);
+    mobj_lock(vma->vma_obj);
+    if (vma->vma_obj)
+    {
+        mobj_put(&vma->vma_obj);
+    } else {
+        mobj_unlock(vma->vma_obj);
+    }
+    slab_obj_free(vmarea_allocator, vma); 
+
+    //NOT_YET_IMPLEMENTED("VM: vmarea_free");
 }
 
 /*
@@ -51,8 +104,16 @@ void vmarea_free(vmarea_t *vma)
  */
 vmmap_t *vmmap_create(void)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_create");
-    return NULL;
+    vmmap_t *map = slab_obj_alloc(vmmap_allocator);
+    if (map) /// any locking or counts?
+    {
+        memset(map, 0, sizeof(vmmap_t));
+        list_init(&map->vmm_list);
+        map->vmm_proc = NULL;
+    }
+    return map;
+    //NOT_YET_IMPLEMENTED("VM: vmmap_create");
+    //return NULL;
 }
 
 /*
@@ -61,7 +122,18 @@ vmmap_t *vmmap_create(void)
  */
 void vmmap_destroy(vmmap_t **mapp)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
+    vmmap_t *map = *mapp;
+    vmarea_t *vma;
+    // use list_iterate to free each vma in the maps list
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        vmarea_free(vma);
+    }
+    slab_obj_free(vmmap_allocator, map); /// this is right?
+    *mapp = NULL;
+
+    //
+   // NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
 }
 
 /*
@@ -71,7 +143,18 @@ void vmmap_destroy(vmmap_t **mapp)
  */
 void vmmap_insert(vmmap_t *map, vmarea_t *new_vma)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_insert");
+    vmarea_t *vma;
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        if (new_vma->vma_start < vma->vma_start)
+        {
+            list_insert_before(&vma->vma_plink, &new_vma->vma_plink);
+            return;
+        }
+    }
+    list_insert_tail(&map->vmm_list, &new_vma->vma_plink);
+
+    //NOT_YET_IMPLEMENTED("VM: vmmap_insert");
 }
 
 /*
@@ -86,11 +169,80 @@ void vmmap_insert(vmmap_t *map, vmarea_t *new_vma)
  *                      from USER_MEM_LOW. 
  * 
  * Make sure you are converting between page numbers and addresses correctly! 
+ * Think about using the list iterate macro to iterate through the vmareas in the vmmap. 
+ * Also, when looking at the lower and upper page boundaries, make sure to convert USER_MEM_LOW 
+ * and USER_MEM_HIGH to be in terms of page numbers!
+ * 
+ * If it is being called to get n pages, it should find a sequence of n pages that ends at USER_MEM_HIGH 
+ * and return the page number of the lowest-numbered of those pages.
  */
 ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_find_range");
+    if (dir == VMMAP_DIR_HILO)
+    {
+        size_t vfn = USER_MEM_HIGH - npages;
+        vmarea_t *vma;
+        list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+        {
+            if (vma->vma_start > vfn)
+            {
+                return vfn;
+            }
+            else
+            {
+                vfn = vma->vma_end + 1;
+            }
+        }
+        return vfn;
+    }
+    else if (dir == VMMAP_DIR_LOHI)
+    {
+        size_t vfn = USER_MEM_LOW;
+        vmarea_t *vma;
+        list_iterate_reverse(&map->vmm_list, vma, vmarea_t, vma_plink)
+        {
+            if (vma->vma_end < vfn)
+            {
+                return vfn;
+            }
+            else
+            {
+                vfn = vma->vma_start - 1;
+            }
+        }
+        return vfn;
+    }
+    else
+    {
+        return -1;
+    }
+
     return -1;
+
+    // vmarea_t *vma;
+    // size_t start, end;
+    // if (dir == VMMAP_DIR_HILO)
+    // {
+    //     start = USER_MEM_HIGH - npages;
+    //     end = USER_MEM_LOW;
+    // }
+    // else
+    // {
+    //     start = USER_MEM_LOW;
+    //     end = USER_MEM_HIGH - npages;
+    // }
+    
+    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     if (vma->vma_start > start && vma->vma_end < end)
+    //     {
+    //         return vma->vma_start;
+    //     }
+    // }
+
+
+    //NOT_YET_IMPLEMENTED("VM: vmmap_find_range");
+   // return -1;
 }
 
 /*
@@ -99,8 +251,17 @@ ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
  */
 vmarea_t *vmmap_lookup(vmmap_t *map, size_t vfn)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_lookup");
+    vmarea_t *vma;
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        if (vma->vma_start <= vfn && vma->vma_end >= vfn)
+        {
+            return vma;
+        }
+    }
     return NULL;
+    // NOT_YET_IMPLEMENTED("VM: vmmap_lookup");
+    // return NULL;
 }
 
 /*
@@ -137,10 +298,45 @@ void vmmap_collapse(vmmap_t *map)
  * Be sure to clean up in any error case, manage the reference counts correctly,
  * and to lock/unlock properly.
  */
-vmmap_t *vmmap_clone(vmmap_t *map)
+vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any error cases?
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_clone");
-    return NULL;
+    vmmap_t *new_map = vmmap_create();
+    vmarea_t *vma;
+
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        vmarea_t *new_vma = vmarea_alloc();
+        new_vma->vma_start = vma->vma_start;
+        new_vma->vma_end = vma->vma_end;
+        new_vma->vma_off = vma->vma_off;
+        new_vma->vma_prot = vma->vma_prot;
+        new_vma->vma_flags = vma->vma_flags;
+        new_vma->vma_obj = vma->vma_obj;
+        new_vma->vma_vmmap = new_map;
+        mobj_ref(new_vma->vma_obj);
+
+        if (new_vma->vma_flags & MAP_SHARED)
+        {
+            list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink); 
+            continue;
+        } 
+        else
+        {
+            mobj_t *new_shadow = shadow_create(new_vma->vma_obj); /// should be vma instead of new_vma? if yes, adjust unlocking too
+            mobj_t *old_shadow = shadow_create(new_vma->vma_obj);
+            mobj_put(&new_vma->vma_obj); /// this?
+            new_vma->vma_obj = new_shadow;
+            vma->vma_obj = old_shadow;
+            list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink);
+            list_insert_tail(&map->vmm_list, &vma->vma_plink);
+            mobj_lock(new_vma->vma_obj);
+
+        }
+
+    }
+    return new_map;
+    //NOT_YET_IMPLEMENTED("VM: vmmap_clone");
+    //return NULL;
 }
 
 /*
@@ -180,8 +376,85 @@ vmmap_t *vmmap_clone(vmmap_t *map)
 long vmmap_map(vmmap_t *map, vnode_t *file, size_t lopage, size_t npages,
                int prot, int flags, off_t off, int dir, vmarea_t **new_vma)
 {
-    NOT_YET_IMPLEMENTED("VM: vmmap_map");
-    return -1;
+    KASSERT(map != NULL);
+
+    if (file == NULL)
+    {
+        mobj_t *anon = anon_create();
+        if (anon == NULL)
+        {
+            return -ENOMEM;
+        }
+        file->vn_mobj = *anon; /// type correct?
+    }
+    else
+    {
+        mobj_t *mobj;
+        int result = file->vn_ops->mmap(file, &mobj);
+        if (result < 0)
+        {
+            return result;
+        }
+        file->vn_mobj = *mobj; /// type correct?
+    }
+
+    if (lopage == 0)
+    {
+        int result = vmmap_find_range(map, npages, dir);
+        if (result < 0)
+        {
+            return result;
+        }
+    }
+
+    if (lopage != 0 && (flags & MAP_FIXED))
+    {
+        vmarea_t *vma;
+        list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+        {
+            if (lopage >= vma->vma_start && lopage <= vma->vma_end)
+            {
+                vmmap_remove(map, lopage, npages);
+            }
+        }
+    }
+
+    vmarea_t *vma = vmarea_alloc();
+    if (vma == NULL)
+    {
+        return -ENOMEM;
+    }
+
+    vma->vma_start = lopage;
+    vma->vma_end = lopage + npages;
+    vma->vma_prot = prot;
+    vma->vma_flags = flags;
+    vma->vma_off = off / PAGE_SIZE;
+    vma->vma_obj = &file->vn_mobj; /// correct?
+    vma->vma_vmmap = map;
+    mobj_ref(vma->vma_obj);
+
+    if (flags & MAP_PRIVATE)
+    {
+        mobj_t *shadow = shadow_create(vma->vma_obj);
+        if (shadow == NULL)
+        {
+            return -ENOMEM;
+        }
+        vma->vma_obj = shadow;
+        mobj_ref(vma->vma_obj);
+    }
+
+    list_insert_tail(&map->vmm_list, &vma->vma_plink);
+
+    if (new_vma != NULL)
+    {
+        *new_vma = vma;
+    }
+
+    return 0;
+    // NOT_YET_IMPLEMENTED("VM: vmmap_map");
+    // return -1;
 }
 
 /*
