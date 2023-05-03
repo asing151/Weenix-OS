@@ -486,7 +486,7 @@ long do_unlink(const char *path)
         //}
         return -ENOTDIR;
     }
-    if (namelen > NAME_LEN) {
+    if (namelen >= NAME_LEN) {
         //if (parent_vnode != NULL) {
         vput(&parent_vnode);
        // }
@@ -516,8 +516,9 @@ long do_unlink(const char *path)
             // }
             return -EPERM;
         }
+        vput(&res_vnode);
         // in this case, Use the vnode unlink operation 
-        res = parent_vnode->vn_ops->unlink(res_vnode, name, namelen); /// num of args, parent vnode not needed
+        res = parent_vnode->vn_ops->unlink(parent_vnode, name, namelen); /// num of args, parent vnode not needed
         // if (res != 0) {
         //     //if (parent_vnode != NULL) {
         //     vunlock(&parent_vnode);
@@ -528,7 +529,7 @@ long do_unlink(const char *path)
         //     return res;
         // }
         vput_locked(&parent_vnode);
-        vput(&res_vnode);
+        
 
         return res;
     }
@@ -666,20 +667,20 @@ long do_link(const char *oldpath, const char *newpath)
 long do_rename(const char *oldpath, const char *newpath)
 {
     vnode_t *old_res_vnode = NULL;
-    const char **old_name = NULL;
-    size_t *old_namelen = NULL;
+    const char *old_name;
+    size_t old_namelen;
     //vnode_t **res_vnode = NULL;
 
     vnode_t *new_res_vnode = NULL;
-    const char **new_name = NULL;
-    size_t *new_namelen = NULL;
+    const char *new_name;
+    size_t new_namelen;
 
-    long old_ret = namev_dir(curproc->p_cwd, oldpath, &old_res_vnode, old_name, old_namelen); /// is base right?
+    long old_ret = namev_dir(curproc->p_cwd, oldpath, &old_res_vnode, &old_name, &old_namelen); /// is base right?
     if (old_ret != 0) {
         return old_ret;
     }
 
-    long new_ret = namev_dir(curproc->p_cwd, newpath, &new_res_vnode, new_name, new_namelen);
+    long new_ret = namev_dir(curproc->p_cwd, newpath, &new_res_vnode, &new_name, &new_namelen);
     if (new_ret != 0) {
         vput(&old_res_vnode);
         return new_ret;
@@ -691,7 +692,7 @@ long do_rename(const char *oldpath, const char *newpath)
         return -ENOTDIR;
     }
     
-    if (*old_namelen > NAME_LEN || *new_namelen > NAME_LEN) {
+    if (old_namelen > NAME_LEN || new_namelen > NAME_LEN) { /// separate if statements
         vput(&old_res_vnode);
         vput(&new_res_vnode);
         return -ENAMETOOLONG;
@@ -699,7 +700,7 @@ long do_rename(const char *oldpath, const char *newpath)
 
     vlock_in_order(old_res_vnode, new_res_vnode);
     //(struct vnode *olddir, const char *oldname, size_t oldnamelen, struct vnode *newdir, const char *newname, size_t newnamelen)
-    int ret = old_res_vnode->vn_ops->rename(old_res_vnode, *old_name, *old_namelen,  new_res_vnode, *new_name, *new_namelen);
+    int ret = old_res_vnode->vn_ops->rename(old_res_vnode, old_name, old_namelen,  new_res_vnode, new_name, new_namelen);
     if (ret != 0) {
         return ret;
     }
@@ -772,7 +773,7 @@ ssize_t do_getdent(int fd, struct dirent *dirp)
 
     vlock(file->f_vnode); 
     int ret = file->f_vnode->vn_ops->readdir(file->f_vnode, file->f_pos, dirp);
-    if (ret < 0) {
+    if (ret <= 0) {
         vunlock(file->f_vnode);
         fput(&file);
         return ret;
@@ -864,12 +865,12 @@ long do_stat(const char *path, stat_t *buf)
     ret = res_vnode->vn_ops->stat(res_vnode, buf); //// type?
     if (ret != 0) {
         //vunlock(&curproc->p_mtx);
-        vlock(res_vnode);
-        vput(&res_vnode);
+        vput_locked(&res_vnode);
+        // vunlock(res_vnode);
+        // vput(&res_vnode);
         return ret;
     }
-    vlock(res_vnode);
-    vput(&res_vnode);
+    vput_locked(&res_vnode);
 
     //NOT_YET_IMPLEMENTED("VFS: do_stat");
     return 0;

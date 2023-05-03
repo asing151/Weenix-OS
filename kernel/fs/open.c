@@ -62,7 +62,7 @@ long get_empty_fd(int *fd)
  */
 long do_open(const char *filename, int oflags) 
 {
-    if ((oflags != O_RDONLY) && (oflags != O_WRONLY) && (oflags != O_RDWR) & (oflags != O_APPEND)){
+    if ((oflags & O_WRONLY) && (oflags & O_RDWR)){
         return -EINVAL;
     }
 
@@ -83,21 +83,28 @@ long do_open(const char *filename, int oflags)
         return -EISDIR;
     }
 
-    if (vnode->vn_mode == S_IFBLK || vnode->vn_mode == S_IFCHR){
+    if (vnode->vn_mode == S_IFBLK || vnode->vn_mode == S_IFCHR){ /// 2 separate, if char n if block
         if (vnode->vn_dev.blockdev == NULL){
             return -ENXIO;
         }
     }
+    // if (vnode->vn_mode == S_IFCHR && vnode->vn_dev.chardev == NULL){
+    //     return -ENXIO;
+    // }
+
+    // if (vnode->vn_mode == S_IFBLK && vnode->vn_dev.blockdev == NULL){
+    //     return -ENXIO;
+    // }
 
     int mode = 0;
     if (oflags & O_RDONLY){
-        mode = FMODE_READ;
+        mode |= FMODE_READ;
     } else if (oflags & O_WRONLY){
-        mode = FMODE_WRITE;
+        mode |= FMODE_WRITE;
     } else if (oflags & O_RDWR){
-        mode = FMODE_READ | FMODE_WRITE;
+        mode |= FMODE_READ | FMODE_WRITE;
     } else if (oflags & O_APPEND){
-        mode = FMODE_APPEND;
+        mode |= FMODE_APPEND;
     }
 
     if (oflags & O_TRUNC && S_ISREG(vnode->vn_mode)){
@@ -105,12 +112,12 @@ long do_open(const char *filename, int oflags)
     }
 
     file_t* file = NULL;
-    file = fcreate(mode, vnode, fd);
+    file = fcreate(fd, vnode, mode);
+    vput(&vnode);
     if (file == NULL){ /// correct?
         return -ENOMEM;
     }
 
-    vput(&vnode);
 
     return fd;
     

@@ -50,7 +50,7 @@ require splitting an area or truncating the beginning or end of an area.
  */
 vmarea_t *vmarea_alloc(void)
 {
-    vmarea_t *vma = slab_obj_alloc(vmarea_allocator);
+    vmarea_t *vma = (vmarea_t *)slab_obj_alloc(vmarea_allocator);
     if (vma)
     // /*    size_t vma_start; /* [starting vfn, 
     // size_t vma_end;   /*  ending vfn) */
@@ -86,11 +86,14 @@ vmarea_t *vmarea_alloc(void)
  */
 void vmarea_free(vmarea_t *vma)
 {
-    list_remove(&vma->vma_plink);
-    mobj_lock(vma->vma_obj);
+    if (list_link_is_linked(&vma->vma_plink)){
+        list_remove(&vma->vma_plink);
+    }
+    //list_remove(&vma->vma_plink);
+    mobj_lock(vma->vma_obj); /// locked?
     if (vma->vma_obj)
     {
-        mobj_put(&vma->vma_obj);
+        mobj_put_locked(&vma->vma_obj);
     } else {
         mobj_unlock(vma->vma_obj);
     }
@@ -104,16 +107,16 @@ void vmarea_free(vmarea_t *vma)
  */
 vmmap_t *vmmap_create(void)
 {
-    vmmap_t *map = slab_obj_alloc(vmmap_allocator);
-    if (map) /// any locking or counts?
-    {
-        memset(map, 0, sizeof(vmmap_t));
-        list_init(&map->vmm_list);
-        map->vmm_proc = NULL;
-    }
-    return map;
-    //NOT_YET_IMPLEMENTED("VM: vmmap_create");
-    //return NULL;
+    // vmmap_t *map = (vmmap_map *)slab_obj_alloc(vmmap_allocator);
+    // if (map) /// any locking or counts?
+    // {
+    //     memset(map, 0, sizeof(vmmap_t));
+    //     list_init(&map->vmm_list);
+    //     map->vmm_proc = NULL;
+    // }
+    // return map;
+    NOT_YET_IMPLEMENTED("VM: vmmap_create");
+    return NULL;
 }
 
 /*
@@ -122,18 +125,18 @@ vmmap_t *vmmap_create(void)
  */
 void vmmap_destroy(vmmap_t **mapp)
 {
-    vmmap_t *map = *mapp;
-    vmarea_t *vma;
-    // use list_iterate to free each vma in the maps list
-    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
-    {
-        vmarea_free(vma);
-    }
-    slab_obj_free(vmmap_allocator, map); /// this is right?
-    *mapp = NULL;
+    // vmmap_t *map = *mapp;
+    // vmarea_t *vma;
+    // // use list_iterate to free each vma in the maps list
+    // list_iterate(&(*ma)->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     vmarea_free(vma);
+    // }
+    // slab_obj_free(vmmap_allocator, *map); /// this is right?
+    // *mapp = NULL;
 
-    //
-   // NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
+//     //
+//    // NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
 }
 
 /*
@@ -143,6 +146,7 @@ void vmmap_destroy(vmmap_t **mapp)
  */
 void vmmap_insert(vmmap_t *map, vmarea_t *new_vma)
 {
+    // asserts that new vma is valid
     vmarea_t *vma;
     list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     {
@@ -178,9 +182,13 @@ void vmmap_insert(vmmap_t *map, vmarea_t *new_vma)
  */
 ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
 {
+    if (npages > (USER_MEM_HIGH - USER_MEM_LOW)/PAGE_SIZE)
+    {
+        return -1;
+    }
     if (dir == VMMAP_DIR_HILO)
     {
-        size_t vfn = USER_MEM_HIGH - npages;
+        size_t vfn = ADDR_TO_PN(USER_MEM_HIGH) - npages;
         vmarea_t *vma;
         list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
         {
@@ -405,52 +413,54 @@ long vmmap_map(vmmap_t *map, vnode_t *file, size_t lopage, size_t npages,
         {
             return result;
         }
-    }
-
-    if (lopage != 0 && (flags & MAP_FIXED))
-    {
-        vmarea_t *vma;
-        list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    } else {
+        if (flags & MAP_FIXED)
         {
-            if (lopage >= vma->vma_start && lopage <= vma->vma_end)
-            {
-                vmmap_remove(map, lopage, npages);
+            // vmarea_t *vma;
+            // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink) 
+            // {
+            //     if (lopage >= vma->vma_start && lopage <= vma->vma_end)
+            //     {
+                    vmmap_remove(map, lopage, npages);
+                //}
             }
         }
-    }
+    
 
-    vmarea_t *vma = vmarea_alloc();
-    if (vma == NULL)
-    {
-        return -ENOMEM;
-    }
 
-    vma->vma_start = lopage;
-    vma->vma_end = lopage + npages;
-    vma->vma_prot = prot;
-    vma->vma_flags = flags;
-    vma->vma_off = off / PAGE_SIZE;
-    vma->vma_obj = &file->vn_mobj; /// correct?
-    vma->vma_vmmap = map;
-    mobj_ref(vma->vma_obj);
 
-    if (flags & MAP_PRIVATE)
-    {
-        mobj_t *shadow = shadow_create(vma->vma_obj);
-        if (shadow == NULL)
-        {
-            return -ENOMEM;
-        }
-        vma->vma_obj = shadow;
-        mobj_ref(vma->vma_obj);
-    }
+    // vmarea_t *vma = vmarea_alloc();
+    // if (vma == NULL)
+    // {
+    //     return -ENOMEM;
+    // }
 
-    list_insert_tail(&map->vmm_list, &vma->vma_plink);
+    // vma->vma_start = lopage;
+    // vma->vma_end = lopage + npages;
+    // vma->vma_prot = prot;
+    // vma->vma_flags = flags;
+    // vma->vma_off = ADDR_TO_PN(off);
+    // vma->vma_obj = &file->vn_mobj; //// could be anonymous!!
+    // vma->vma_vmmap = map;
+    // mobj_ref(vma->vma_obj);
 
-    if (new_vma != NULL)
-    {
-        *new_vma = vma;
-    }
+    // if (flags & MAP_PRIVATE)
+    // {
+    //     mobj_t *shadow = shadow_create(vma->vma_obj);
+    //     if (shadow == NULL)
+    //     {
+    //         return -ENOMEM;
+    //     }
+    //     vma->vma_obj = shadow;
+    //     mobj_ref(vma->vma_obj);
+    // }
+
+    // list_insert_tail(&map->vmm_list, &vma->vma_plink);
+
+    // if (new_vma != NULL)
+    // {
+    //     *new_vma = vma;
+    // }
 
     return 0;
     // NOT_YET_IMPLEMENTED("VM: vmmap_map");
@@ -492,6 +502,61 @@ long vmmap_remove(vmmap_t *map, size_t lopage, size_t npages)
 {
     NOT_YET_IMPLEMENTED("VM: vmmap_remove");
     return -1;
+
+    // vmarea_t *vma;
+    // list_iterate_begin(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     if (lopage >= vma->vma_start && lopage <= vma->vma_end)
+    //     {
+    //         if (lopage == vma->vma_start && lopage + npages == vma->vma_end)
+    //         {
+    //             list_remove(&vma->vma_plink);
+    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             mobj_t *obj = vma->vma_obj;
+    //             mobj_put(obj);
+    //             vmarea_free(vma);
+    //             return 0;
+    //         }
+    //         else if (lopage == vma->vma_start)
+    //         {
+    //             vma->vma_start += npages;
+    //             vma->vma_off += npages;
+    //             vma->vma_obj->mmo_ops->ref(vma->vma_obj);
+    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             return 0;
+    //         }
+    //         else if (lopage + npages == vma->vma_end)
+    //         {
+    //             vma->vma_end -= npages;
+    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             return 0;
+    //         }
+    //         else
+    //         {
+    //             vmarea_t *new_vma = vmarea_alloc();
+    //             if (new_vma == NULL)
+    //             {
+    //                 return -ENOMEM;
+    //             }
+    //             new_vma->vma_start = lopage + npages;
+    //             new_vma->vma_end = vma->vma_end;
+    //             new_vma->vma_prot = vma->vma_prot;
+    //             new_vma->vma_flags = vma->vma_flags;
+    //             new_vma->vma_off = vma->vma_off + npages;
+    //             new_vma->vma_obj = vma->vma_obj;
+    //             new_vma
+
+
+    //                 vma->vma_end = lopage;}
+
+    //     }
+    // }
+    // list_iterate_end();
+
+    return 0;
 }
 
 /*
@@ -500,6 +565,17 @@ long vmmap_remove(vmmap_t *map, size_t lopage, size_t npages)
  */
 long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages)
 {
+
+    // vmarea_t *vma;
+    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     if (vma->vma_start <= startvfn && vma->vma_end >= startvfn + npages)
+    //     {
+    //         return 0;
+    //     }
+    // }
+    // return 1;
+
     NOT_YET_IMPLEMENTED("VM: vmmap_is_range_empty");
     return 0;
 }
@@ -521,6 +597,26 @@ long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages)
  */
 long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
 {
+    // vmarea_t *vma;
+
+    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     if (vma->vma_start <= ADDR_TO_PN(vaddr) && vma->vma_end >= ADDR_TO_PN(vaddr) + ADDR_TO_PN(count))
+    //     {
+    //         pframe_t *pf;
+    //         size_t offset = ADDR_TO_PN(vaddr) - vma->vma_start;
+    //         size_t size = ADDR_TO_PN(count);
+    //         for (size_t i = 0; i < size; i++)
+    //         {
+    //             pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
+    //             memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
+    //             pframe_put(pf);
+    //         }
+    //         return 0;
+    //     }
+    // }
+
+
     NOT_YET_IMPLEMENTED("VM: vmmap_read");
     return 0;
 }

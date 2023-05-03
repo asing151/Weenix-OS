@@ -50,6 +50,7 @@ file_t *fcreate(int fd, vnode_t *vnode, unsigned int mode)
     file->f_mode = mode;
 
     vref(file->f_vnode = vnode);
+
     if (vnode->vn_ops->acquire)
         vnode->vn_ops->acquire(vnode, file);
 
