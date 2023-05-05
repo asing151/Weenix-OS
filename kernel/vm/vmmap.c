@@ -190,7 +190,7 @@ ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
     {
         size_t vfn = ADDR_TO_PN(USER_MEM_HIGH) - npages;
         vmarea_t *vma;
-        list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+        list_iterate_reverse(&map->vmm_list, vma, vmarea_t, vma_plink)
         {
             if (vma->vma_start > vfn)
             {
@@ -205,17 +205,17 @@ ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
     }
     else if (dir == VMMAP_DIR_LOHI)
     {
-        size_t vfn = USER_MEM_LOW;
+        size_t vfn = ADDR_TO_PN(USER_MEM_LOW);
         vmarea_t *vma;
-        list_iterate_reverse(&map->vmm_list, vma, vmarea_t, vma_plink)
+        list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
         {
-            if (vma->vma_end < vfn)
+            if (vma->vma_start- vfn >= npages)
             {
                 return vfn;
             }
             else
             {
-                vfn = vma->vma_start - 1;
+                vfn = vma->vma_end;
             }
         }
         return vfn;
@@ -259,6 +259,10 @@ ssize_t vmmap_find_range(vmmap_t *map, size_t npages, int dir)
  */
 vmarea_t *vmmap_lookup(vmmap_t *map, size_t vfn)
 {
+    if (vfn < ADDR_TO_PN(USER_MEM_LOW) || vfn > ADDR_TO_PN(USER_MEM_HIGH))
+    {
+        return NULL;
+    }
     vmarea_t *vma;
     list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     {
@@ -306,14 +310,23 @@ void vmmap_collapse(vmmap_t *map)
  * Be sure to clean up in any error case, manage the reference counts correctly,
  * and to lock/unlock properly.
  */
-vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any error cases?
+vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any error cases? /// any locks
 {
     vmmap_t *new_map = vmmap_create();
+    if (new_map == NULL)
+    {
+        return NULL;
+    }
     vmarea_t *vma;
 
     list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     {
         vmarea_t *new_vma = vmarea_alloc();
+        if (new_vma == NULL)
+        {
+            vmmap_destroy(new_map);
+            return NULL;
+        }
         new_vma->vma_start = vma->vma_start;
         new_vma->vma_end = vma->vma_end;
         new_vma->vma_off = vma->vma_off;
@@ -330,14 +343,21 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
         } 
         else
         {
+            /// 
             mobj_t *new_shadow = shadow_create(new_vma->vma_obj); /// should be vma instead of new_vma? if yes, adjust unlocking too
             mobj_t *old_shadow = shadow_create(new_vma->vma_obj);
-            mobj_put(&new_vma->vma_obj); /// this?
+            if (new_shadow == NULL || old_shadow == NULL)
+            {
+                vmmap_destroy(new_map);
+                return NULL;
+            }
+            mobj_put(&vma->vma_obj); /// this?
             new_vma->vma_obj = new_shadow;
             vma->vma_obj = old_shadow;
+
             list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink);
-            list_insert_tail(&map->vmm_list, &vma->vma_plink);
-            mobj_lock(new_vma->vma_obj);
+            //list_insert_tail(&map->vmm_list, &vma->vma_plink); /// confirm
+            //mobj_lock(new_vma->vma_obj);
 
         }
 
@@ -382,7 +402,7 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
  *    work until there is no more chance of failure.
  */
 long vmmap_map(vmmap_t *map, vnode_t *file, size_t lopage, size_t npages,
-               int prot, int flags, off_t off, int dir, vmarea_t **new_vma)
+               int prot, int flags, off_t off, int dir, vmarea_t **new_vma) /// anon obj what to do
 {
     KASSERT(map != NULL);
 
@@ -504,59 +524,97 @@ long vmmap_remove(vmmap_t *map, size_t lopage, size_t npages)
     return -1;
 
     // vmarea_t *vma;
-    // list_iterate_begin(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     // {
-    //     if (lopage >= vma->vma_start && lopage <= vma->vma_end)
+    //     // if (lopage >= vma->vma_start && lopage <= vma->vma_end) 
+        // {
+        //     if (lopage == vma->vma_start && lopage + npages == vma->vma_end) 
+        //     {
+        //         list_remove(&vma->vma_plink);
+        //         pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         mobj_t *obj = vma->vma_obj;
+        //         mobj_put(obj);
+        //         vmarea_free(vma);
+        //         return 0;
+        //     }
+        //     else if (lopage == vma->vma_start)
+        //     {
+        //         vma->vma_start += npages;
+        //         vma->vma_off += npages;
+        //         vma->vma_obj->mmo_ops->ref(vma->vma_obj);
+        //         pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         return 0;
+        //     }
+        //     else if (lopage + npages == vma->vma_end)
+        //     {
+        //         vma->vma_end -= npages;
+        //         pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+        //         return 0;
+        //     }
+        //     else
+        //     {
+        //         vmarea_t *new_vma = vmarea_alloc();
+        //         if (new_vma == NULL)
+        //         {
+        //             return -ENOMEM;
+        //         }
+        //         new_vma->vma_start = lopage + npages;
+        //         new_vma->vma_end = vma->vma_end;
+        //         new_vma->vma_prot = vma->vma_prot;
+        //         new_vma->vma_flags = vma->vma_flags;
+        //         new_vma->vma_off = vma->vma_off + npages;
+        //         new_vma->vma_obj = vma->vma_obj;
+        //         new_vma
+
+
+        //             vma->vma_end = lopage;}
+
+    //     // }
+
+    //     // if overlap
+    //     if (vma->vma_start >= (lopage + npages) || vma->vma_end <= lopage) 
     //     {
-    //         if (lopage == vma->vma_start && lopage + npages == vma->vma_end)
-    //         {
-    //             list_remove(&vma->vma_plink);
-    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             mobj_t *obj = vma->vma_obj;
-    //             mobj_put(obj);
-    //             vmarea_free(vma);
-    //             return 0;
-    //         }
-    //         else if (lopage == vma->vma_start)
-    //         {
-    //             vma->vma_start += npages;
-    //             vma->vma_off += npages;
-    //             vma->vma_obj->mmo_ops->ref(vma->vma_obj);
-    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             return 0;
-    //         }
-    //         else if (lopage + npages == vma->vma_end)
-    //         {
-    //             vma->vma_end -= npages;
-    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
-    //             return 0;
-    //         }
-    //         else
-    //         {
-    //             vmarea_t *new_vma = vmarea_alloc();
-    //             if (new_vma == NULL)
-    //             {
-    //                 return -ENOMEM;
-    //             }
-    //             new_vma->vma_start = lopage + npages;
-    //             new_vma->vma_end = vma->vma_end;
-    //             new_vma->vma_prot = vma->vma_prot;
-    //             new_vma->vma_flags = vma->vma_flags;
-    //             new_vma->vma_off = vma->vma_off + npages;
-    //             new_vma->vma_obj = vma->vma_obj;
-    //             new_vma
-
-
-    //                 vma->vma_end = lopage;}
-
+    //         return 0;
     //     }
+
+    //     if (vma->vma_start >= lopage && vma->vma_end <= (lopage + npages))
+    //     {
+    //         vmarea_free(vma);
+    //         if (vma->vma_proc != NULL)
+    //         {
+    //             pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //         }
+    //         //list_remove(&vma->vma_plink);
+            
+    //         // mobj_t *obj = vma->vma_obj; ///
+    //         // mobj_put(obj);
+            
+    //         return 0;
+    //     }
+
+    //     if (vma->vma_start >= lopage && vma->vma_end > (lopage + npages) && (lopage + npages) > vma->vma_start) // maybe && lopage + npoages vma-> start
+    //     {
+    //         vma->vma_start = lopage + npages;
+    //         vma->vma_off += npages + lopage - vma->vma_start;
+    //         //vma->vma_obj->mmo_ops->ref(vma->vma_obj);
+    //         if (vma->vma_proc != NULL)
+    //         {
+    //             pt_unmap_range(vma->vma_proc->p_p
+    //             tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //         }
+    //         // pt_unmap_range(curproc->p_pagedir, (uintptr_t)PN_TO_ADDR(lopage), npages);
+    //         // tlb_flush_range((uintptr_t)PN_TO_ADDR(lopage), npages);
+    //         return 0;
+    //     }
+
     // }
     // list_iterate_end();
 
-    return 0;
+    // return 0;
 }
 
 /*

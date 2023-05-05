@@ -183,6 +183,7 @@ find:
     return vn;
 }
 
+
 inline vnode_t *vget(fs_t *fs, ino_t ino) { return __vget(fs, ino, 0); }
 
 inline vnode_t *vget_locked(fs_t *fs, ino_t ino) { return __vget(fs, ino, 1); }
@@ -200,6 +201,7 @@ inline void vput(struct vnode **vnp)
     mobj_t *mobj = &vn->vn_mobj;
     mobj_put(&mobj);
 }
+
 
 inline void vput_locked(struct vnode **vnp)
 {

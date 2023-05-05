@@ -30,14 +30,14 @@ ssize_t do_read(int fd, void *buf, size_t len)
     if (file == NULL ) {
         return -EBADF;
     }
-    if (file->f_mode & FMODE_READ) {
-        if (S_ISDIR(file->f_vnode->vn_mode)) { // can be outside this if
+    if (S_ISDIR(file->f_vnode->vn_mode)) { // can be outside this if
             fput(&file); 
             return -EISDIR;
         }
+    if (file->f_mode & FMODE_READ) {
         vlock(file->f_vnode);
         int ret = file->f_vnode->vn_ops->read(file->f_vnode, file->f_pos, buf, len);
-        if (ret != 0) {
+        if (ret < 0) {
             vunlock(file->f_vnode);
             fput(&file);
             return ret;
@@ -81,7 +81,7 @@ ssize_t do_write(int fd, const void *buf, size_t len)
             file->f_pos = file->f_vnode->vn_len;
         }
         int ret = file->f_vnode->vn_ops->write(file->f_vnode, file->f_pos, buf, len);
-        if (ret != 0) {
+        if (ret < 0) {
             vunlock(file->f_vnode);
             fput(&file);
             return ret;
@@ -843,7 +843,7 @@ off_t do_lseek(int fd, off_t offset, int whence)
 
     //NOT_YET_IMPLEMENTED("VFS: do_lseek");
     fput(&file); /// fput after anytimeyou call fget
-    return file->f_pos;
+    return pos;
 }
 
 /* Use buf to return the status of the file represented by path.

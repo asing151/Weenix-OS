@@ -78,6 +78,10 @@ long namev_lookup(vnode_t *dir, const char *name, size_t namelen,
 {
     if (dir->vn_ops == NULL || !S_ISDIR(dir->vn_mode)) {
         return -ENOTDIR;
+    } else if (namelen == 0) {
+        *res_vnode = dir;
+        vref(*res_vnode);
+        return 0;
     }
 
     long ret = dir->vn_ops->lookup(dir, name, namelen, res_vnode); 
@@ -225,7 +229,7 @@ long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
 
     vlock(basenode);
     vref(basenode); 
-    while (nextname != NULL) {
+    while (next_len != 0) {
         vnode_t *revnode; 
         int err = namev_lookup(basenode, curname, cur_len, &revnode);
         //vunlock(basenode);
@@ -233,23 +237,31 @@ long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
             vput_locked(&basenode);
             return err;
         }
+        int check = 1;
 
         if (basenode == revnode){ // a/b/./c
+            check = 0;
             vput(&revnode);
+
             //vput_locked(&basenode);
         } else{
             // vput(&revnode);
             vput_locked(&basenode);
             vlock(revnode);
         }
-        basenode = revnode;
+        if (check == 1){
+            basenode = revnode;
+        }
         curname = nextname;
         cur_len = next_len;
         nextname = (char *)namev_tokenize(&path, &next_len);
     }
         
     /// set all back to original
+    //if (basenode){
     vunlock(basenode);
+    //}
+    //vunlock(basenode);
     *res_vnode = basenode;
     *name = curname;
     *namelen = cur_len;

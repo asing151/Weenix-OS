@@ -103,8 +103,11 @@ static ssize_t null_write(chardev_t *dev, size_t pos, const void *buf,
  */
 static ssize_t zero_read(chardev_t *dev, size_t pos, void *buf, size_t count)
 {
-    NOT_YET_IMPLEMENTED("DRIVERS: zero_read");
-    return 0;
+    //NOT_YET_IMPLEMENTED("DRIVERS: zero_read");
+    //return 0;
+    memset(buf, 0, count);
+    return count;
+
 }
 
 /**
@@ -113,6 +116,7 @@ static ssize_t zero_read(chardev_t *dev, size_t pos, void *buf, size_t count)
  */
 static long zero_mmap(vnode_t *file, mobj_t **ret)
 {
-    NOT_YET_IMPLEMENTED("VM: zero_mmap");
-    return -1;
+    // NOT_YET_IMPLEMENTED("VM: zero_mmap");
+    // return -1;
+    return anon_mmap(NULL, 0, ret);
 }

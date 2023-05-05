@@ -693,7 +693,7 @@ void s5_remove_dirent(s5_node_t *sn, const char *name, size_t namelen,
 //     s5_write_file(sn, buf, filepos, sizeof(s5_dirent_t));
     
 //     // truncate by adjusting vn len
-//     dir->vn_len -= sizeof(s5_dirent_t);
+//     dir->vn_len -= sizeof(s5_dirent_t); /// inode len n vn len decr
 //     child->inode.s5_linkcount--;
 //     sn->dirtied_inode = 1;
 //     child->dirtied_inode = 1;

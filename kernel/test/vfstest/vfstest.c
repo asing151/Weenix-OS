@@ -876,7 +876,7 @@ static void vfstest_read(void)
     syscall_success(fd = open("file03", O_RDWR | O_APPEND, 0));
     test_fpos(fd, 0);
     syscall_success(write(fd, "hello", 5));
-    test_fpos(fd, 10);
+    test_fpos(fd, 10);  
 
     syscall_success(lseek(fd, 0, SEEK_SET));
     test_fpos(fd, 0);
@@ -1153,11 +1153,11 @@ int vfstest_main(int argc, char **argv)
     vfstest_chdir();
     vfstest_mkdir();
     vfstest_paths();
-    // vfstest_fd();
-    // vfstest_open();
-    // vfstest_read();
-    // vfstest_getdents();
-    // vfstest_memdev();
+    vfstest_fd();
+    vfstest_open();
+    vfstest_read();
+    vfstest_getdents();
+    vfstest_memdev();
     // vfstest_write();
 
 #ifdef __VM__
