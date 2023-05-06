@@ -12,6 +12,41 @@
 #include "util/string.h"
 #include <fs/s5fs/s5fs.h>
 
+/*
+Superblock
+The first block of the disk (block number zero) is called the superblock, which contains metadata about the file system. The important data fields inside it are the inode number of the root directory, the number of the first free inode, the first section of the free block list, the number of free blocks currently referenced in that section of the free block list, and the total number of inodes in use by the filesystem. The less important fields are the “magic number” for S5FS disks (used as a sanity check for the OS to determine that the disk you are reading is formatted as an S5FS disk), and the version number of S5FS we are using. The in-memory copy of the superblock is stored in a s5_super_t struct. For more information about the structure of the free block list, check out the section on below.
+Inodes
+Next, there is an array containing all the inodes for the file system. Each inode requires 128 bytes of space, and each disk block is 4096 bytes, so we store 32 inodes per block. Inodes are referred to by their index in the array, and are stored in memory as s5_inode_t structs. Each inode is either free, or it corresponds to some file in the file system.
+If an inode is not free, it represents a file presently on disk. The inode holds of the size of the file, the type of the file (whether it is a directory, character device, block device, or a regular file), the number of links to the file from other locations in the file system, and where the data blocks of the file are stored on disk. The file size is stored in the inode's s5_un field and can be accessed with s5_un.s5_size.
+If an inode is free, it need only be marked as empty and contain the inode number of the next free inode in the free list (or -1 if it is the last element in the list). Note that the inode number is of type uint32_t, so to check for -1, you will have to cast it, like so: (uint32_t)-1. This link is stored in the s5_un field and can be accessed with s5_un.s5_next_free.
+
+An node with an indirect block (data blocks not pictured).
+As mentioned above, the location of the data blocks for a file are also stored in the inode for the file. Direct blocks are stored in the inode's s5_direct_blocks array, which contains disk block numbers where the information for a particular data block is stored on disk (note that "pointer" in this context refers to disk block numbers, not memory addresses). The inode itself holds S5_NDIRECT_BLOCKS data block numbers, but this is not usually enough for a large-ish file. Luckily, S5FS inodes for “large” files also contain a pointer to a singular indirect block, s5_indirect_block, which is a disk block filled with a mapping from more data block numbers to other disk blocks. It is able to store up to S5_BLOCK_SIZE / sizeof(uint32_t) more block numbers. In a production file system, you should be able to support arbitrarily long files, which would require arbitrarily long indirect block chains (or, more likely, B-trees), but in Weenix we choose to only implement a single indirect block for simplicity. This means that there is a maximum file size; make sure you handle this error case correctly.
+It's important to note that an inode doesn't contain any actual file data, rather holds pointers to blocks that can be used to retrieve the data of a particular file from disk.
+While the default disk size gives you space for several hundred data blocks, the indirect block will allow a single file to use thousands of blocks. This might seem unnecessary, however it allows for the implementation of sparse files. If a file has a big chunk of zeros in it, Weenix will not waste actual space on the disk to represent them; it just sets the block index to zero. When reading a file, if a block number of zero is encountered, then that entire block should consist of zeroes. Remember that zero is guaranteed to be an invalid data block number because it is the block number of the superblock.
+To use an inode from disk, you must get its page from the disk memory object (the S5_INODE_BLOCK() macro will tell you which disk block to get) and then use the S5_INODE_OFFSET() macro to index into the page. When you are changing a file or the filesystem data structures, make sure that you remember to dirty the inode if necessary (mark it as modified so it can be written back to disk). Note the presence of the dirtied_inode field in s5_node_t, which can be set for this purpose. Remember that you should never clean pages (write pages back to disk) yourself as the Weenix shutdown sequence will take care of that automatically.
+Data Blocks
+Data blocks are where actual file contents are stored. They occur on disk after the inode array and fill the remainder of the disk. For simplicity, disk blocks and virtual memory pages are the same number of bytes in Weenix, although this is not necessarily true for other operating systems.
+The contents of the data blocks are obviously dependent on what file they are filled with (except for directories, which also use data blocks but have a special format described below) unless they are in the free block list.
+The free block list.
+Instead of a free list where each link only points to one more link, which would be wildly inefficient due to frequent seek delays, S5FS uses a list where each link in the list contains the numbers of many free blocks, the last of which points to the next link in the free list. The first segment of the free list is stored in the superblock, where up to S5_NBLKS_PER_FNODE blocks are stored. The last element of this array is a pointer to a block containing S5_NBLKS_PER_FNODE more free blocks, the last of which is a pointer to a block with more free pointers, and so on. The last free block in the list has a -1 in the last position to indicate there are no more free blocks. After the second-to-last free block in the superblock’s array is used, the next set of free blocks should be copied out of the next block, and then the block they were just copied from can be returned as the next free block.
+
+Directories
+S5FS implements directories as normal files that have a special format for their data. The data stored in directory files is essentially just a big array of pairs of inode numbers (which are the same as vnode numbers) and the filenames corresponding to those inode numbers. Filenames in S5FS are null-terminated strings of length less than or equal to S5_NAME_LEN (including the null character). Any entry with a zero-length name indicates an empty or deleted entry. Note that every directory contains one entry for “.” and one for “..”, corresponding to the current directory and the parent directory, respectively, from the beginning of its existence to the moment it is deleted. The link count for a newly-created directory should be two (one reference from its parent directory, and one from itself).
+Caching
+Memory Objects and Page Frame
+At this point, you know a lot about how the on-disk filesystem looks and could probably inspect the disk block-by-block and understand what files are stored there. However, while working on this part of Weenix, you will not need to directly read and write from the disk, even in the most low-level functions. Instead, you will use the VM caching system to read blocks from disk into memory. You can then manipulate these pages in memory, and the Weenix shutdown sequence will automatically handle writing them back to disk.
+The Weenix caching system uses two different types of objects: page frames, which are each responsible for tracking one page/block of data, and memory objects, which are each associated with a number of page frames that hold the data for that memory object. In the codebase, the names for these objects are pframe_t and mobj_t, respectively. Each memory object represents some data source, which could be a file, device, or virtual memory region. This means that page frames are used to reference the blocks of files, blocks of a device, and blocks of segments of memory. Specifically, page frames store some metadata about the page they hold and a reference to that page in memory. If a particular page of, say, a file hasn’t been paged into memory, there will not yet be a page frame for that page.
+In general, to get a particular page frame from a memory object, you should call the mobj_get_pframe() function on the memory object you wish to get the page from. The data stored in the page is stored at the location pointed to by the page frame’s pf_addr field. If the call to mobj_get_pframe() requests a page frame for writing to, the returned page frame will be marked so that it will be cleaned (the changes will be written back to disk) later. The cleaning process uses callbacks in the disk’s memory object to write the data back to disk. Importantly, mobj_get_pframe() returns with the requested page frame's mutex locked so don't forget to call pframe_release() once you're finished using it to unlock the page frame again. Note that you will not need to call mobj_get_pframe directly in your implementation, instead you will be calling routines that will call it, as described below.
+File Block Request
+The function to request a partircular file block is s5_get_file_block() (which is used in s5_read_file and s5_write_file). It's a file-system level wrapper. It will actually call the get_pframe() operation of the vnode memory object, which is implemented by s5fs_get_pframe(). This function is implemented by stencil, but we still suggest to look through it as well as the function s5_file_block_to_disk_block(). These two functions illustrate how an s5fs inode can tell which block on the disk should be read or written to.
+In order to determine the blocknum to pass in, you will need to determine the location of the block relative to the beginning of the file, using the S5_DATA_BLOCK macro. This takes in a position or location, in terms of bytes, in the file and returns the corresponding block number. For instance, if you were requesting the block that corresponds to position 5192 bytes, then the resulting block number would be 1. Note that this is not the same as the disk block number. This resulting number from the macro will be converted to a disk block number (or 0 for a sparse block) in the routine s5_file_block_to_disk_block (which you do not have to call directly in your implementation).
+Disk Block Request
+To request a specific disk block for S5FS, we use s5_get_disk_block(). It's a disk-level wrapper which handles some synchronization and state checking. The forwrite field should be set to 1 when you are writing a changed block back to disk, and set to 0 when you are just reading from the block. It will request a page frame from the memory object of the disk (which is a block device) by calling mobj_get_pframe(). To populate the data within the page frame, it will use the operations for the block device memory object, namely, blockdev_fill_pframe() which is implemented drivers/blockdev.c (basically calling the sata_read_block for the disk, thus initiating a disk operation). s5_release_disk_block() will unlock the page frame's mutex. The page frames cached within the block device's mobj will be flushed back to disk on Weenix shutdown.
+Tips
+Although this may sound like common sense, it is important that you use a file’s memory object every time you are dealing with a file, and use the block device’s memory object when you are implementing pieces of the filesystem that are “low-level enough” to know how a file is split across multiple blocks on disk. If you accidentally use the block device's memory object instead of the file memory object, you will be short-circuiting a couple layers of abstraction that will be necessary later on.
+*/
+
 static void s5_free_block(s5fs_t *s5fs, blocknum_t block);
 
 static long s5_alloc_block(s5fs_t *s5fs);
@@ -115,7 +150,7 @@ static inline void s5_release_file_block(pframe_t **pfp)
  *  - Be sure to mark the inode as dirty when appropriate, i.e. when you are
  *    making changes to the actual s5_inode_t struct. Hint: Does allocating a
  *    direct block dirty the inode? What about allocating the indirect block?
- *    Finally, what about allocating a block pointed to by the indirect block?
+ *    Finally, what about allocating a block pointed to by the indirect block? /// yes?
  *  - Cases to consider:
  *    1) file_blocknum < S_NDIRECT_BLOCKS
  *    2) Indirect block is not allocated but alloc is set. Be careful not to
@@ -126,7 +161,7 @@ static inline void s5_release_file_block(pframe_t **pfp)
  */
 long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
                                  int alloc)
-{
+{ /// any locking or refcounts?
 
     // if (file_blocknum >= S5_MAX_FILE_BLOCKS) {
     //     return -EINVAL;
@@ -135,47 +170,50 @@ long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
     // // get this s5fs_t from sn
     // s5fs_t *s5fs = VNODE_TO_S5FS(&sn->vnode);
 
-    // if (file_blocknum < S5_NDIRECT_BLOCKS) {
-    //     // chekcing if 
-    //     if (sn->inode->s5_direct_blocks[file_blocknum] == 0) { /// compare to NULL instead of 0?
+    // if (file_blocknum < S5_NDIRECT_BLOCKS) { /// or <=?
+    //     if (sn->inode.s5_direct_blocks[file_blocknum] == 0) { /// compare to NULL instead of 0?
     //         if (alloc) {
     //             long block = s5_alloc_block(s5fs);
     //             if (block < 0) {
     //                 return block;
     //             }
-    //             sn->inode->s5_direct_blocks[file_blocknum] = block;
+    //             sn->inode.s5_direct_blocks[file_blocknum] = block;
     //             sn->dirtied_inode = 1;
     //             return block;
     //         } else {
     //             return 0;
     //         }
     //     }
-    //     return sn->inode->s5_direct_blocks[file_blocknum];
+    //     return sn->inode.s5_direct_blocks[file_blocknum];
     // }
 
-    // if (sn->inode->s5_indirect_block == 0) {
+    // if (sn->inode.s5_indirect_block == 0) { /// verify
     //     if (alloc) {
     //         long indirect_block = s5_alloc_block(s5fs);
-    //         if (block < 0) {
-    //             return block;
+    //         if (indirect_block < 0) {
+    //             return indirect_block;
     //         }
-    //         sn->inode->s5_indirect_block = indirect_block;
+    //         sn->inode.s5_indirect_block = indirect_block;
     //         sn->dirtied_inode = 1;
     //         long actual = s5_alloc_block(s5fs);
-            
-    //         // declare a pframe
-    //         s5_get_disk_block(s5fs, indirect_block, 1, said_pframe->discblocknum); /// write actual to pframe
+    //         if (actual < 0) {
+    //             return actual;
+    //         }
+    //         pframe_t *pframe;
+    //         s5_get_disk_block(s5fs, indirect_block, 1, pframe->discblocknum); /// write actual to pframe
+    //         }
 
     //     } else {
     //         return 0;
     //     }
-    // } else {
-    //      pframe_t *pframe;
-    // s5_get_disk_block(sn->s5_fs, sn->inode->s5_indirect_block,
-    //                             0, &pframe);
-    // }
+    // // } else {
+    // //     pframe_t *pframe;
+    // //     s5_get_disk_block(sn->s5_fs, sn->inode->s5_indirect_block, 0, &pframe);
+    // // }
 
-    // uint32_t *indirect_block = (uint32_t *)pframe->pf_addr;
+    // pframe_t *pframe;
+
+    // uint32_t *indirect_block = (uint32_t *)pframe->pf_addr; /// use macro instead
     // long block = indirect_block[file_blocknum - S5_NDIRECT_BLOCKS];
 
     // if (block == 0) {
@@ -197,8 +235,10 @@ long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
     // } else {
     //     s5_release_disk_block(&pframe);
     // }
-    // // s5_release_disk_block(&pframe);
+
     // return block;
+    // // s5_release_disk_block(&pframe);
+    // //return block;
     return 0;
 
     NOT_YET_IMPLEMENTED("S5FS: s5_file_block_to_disk_block");
@@ -369,7 +409,8 @@ ssize_t s5_write_file(s5_node_t *sn, size_t pos, const char *buf, size_t len)
  *    s5_free_block below.
  *  - You may assume/assert that any pframe calls succeed.
  */
-static long s5_alloc_block(s5fs_t *s5fs)
+static long 
+s5_alloc_block(s5fs_t *s5fs)
 {
     // s5_lock_super(s5fs);
     // s5_super_t *s = &s5fs->s5f_super;
@@ -421,29 +462,29 @@ static long s5_alloc_block(s5fs_t *s5fs)
  */
 static void s5_free_block(s5fs_t *s5fs, blocknum_t blockno)
 {
-    s5_lock_super(s5fs);
-    s5_super_t *s = &s5fs->s5f_super;
-    dbg(DBG_S5FS, "freeing disk block %d\n", blockno);
-    KASSERT(blockno);
-    KASSERT(s->s5s_nfree < S5_NBLKS_PER_FNODE);
+    // s5_lock_super(s5fs);
+    // s5_super_t *s = &s5fs->s5f_super;
+    // dbg(DBG_S5FS, "freeing disk block %d\n", blockno);
+    // KASSERT(blockno);
+    // KASSERT(s->s5s_nfree < S5_NBLKS_PER_FNODE);
 
-    pframe_t *pf;
-    s5_get_disk_block(s5fs, blockno, 1, &pf);
+    // pframe_t *pf;
+    // s5_get_disk_block(s5fs, blockno, 1, &pf);
 
-    if (s->s5s_nfree == S5_NBLKS_PER_FNODE - 1)
-    {
-        memcpy(pf->pf_addr, s->s5s_free_blocks, sizeof(s->s5s_free_blocks));
+    // if (s->s5s_nfree == S5_NBLKS_PER_FNODE - 1)
+    // {
+    //     memcpy(pf->pf_addr, s->s5s_free_blocks, sizeof(s->s5s_free_blocks));
 
-        s->s5s_nfree = 0;
-        s->s5s_free_blocks[S5_NBLKS_PER_FNODE - 1] = blockno;
-    }
-    else
-    {
-        s->s5s_free_blocks[s->s5s_nfree++] = blockno;
-        pf->pf_dirty = 0;
-    }
-    s5_release_disk_block(&pf);
-    s5_unlock_super(s5fs);
+    //     s->s5s_nfree = 0;
+    //     s->s5s_free_blocks[S5_NBLKS_PER_FNODE - 1] = blockno;
+    // }
+    // else
+    // {
+    //     s->s5s_free_blocks[s->s5s_nfree++] = blockno;
+    //     pf->pf_dirty = 0;
+    // }
+    // s5_release_disk_block(&pf);
+    // s5_unlock_super(s5fs);
 }
 
 /*

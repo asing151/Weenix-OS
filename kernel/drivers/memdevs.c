@@ -118,5 +118,13 @@ static long zero_mmap(vnode_t *file, mobj_t **ret)
 {
     // NOT_YET_IMPLEMENTED("VM: zero_mmap");
     // return -1;
-    return anon_mmap(NULL, 0, ret);
+    // create an anonymous object (one for which all of its pages are initially zeroes).
+
+    mobj_t *mobj = anon_create();
+    if (mobj == NULL)
+    {
+        return -ENOMEM;
+    }
+    *ret = mobj;
+    return 0; 
 }

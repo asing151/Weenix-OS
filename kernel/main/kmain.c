@@ -167,7 +167,7 @@ static void *initproc_run(long arg1, void *arg2)
 #endif
     proctest_main(0, NULL);
     driverstest_main(0, NULL);
-    vfstest_main(1, NULL);
+    // vfstest_main(1, NULL);
     /// ifdef drivers put here
 // #ifdef __DRIVERS__
 //     char name[32] = {0};

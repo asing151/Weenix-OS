@@ -164,6 +164,8 @@ void ldisc_key_pressed(ldisc_t *ldisc, char c)
     else {
         ldisc->ldisc_buffer[ldisc->ldisc_head] = c;
         ldisc->ldisc_head = (ldisc->ldisc_head + 1) % LDISC_BUFFER_SIZE; /// are thesea the only steps?
+        // tail
+        ldisc->ldisc_buffer[ldisc->ldisc_tail] = c;
         vterminal_key_pressed(&ldisc_to_tty(ldisc)->tty_vterminal); /// what args???
     }
     /// NOT_YET_IMPLEMENTED("DRIVERS: ldisc_key_pressed");
