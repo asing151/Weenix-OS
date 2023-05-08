@@ -181,11 +181,29 @@ void ldisc_key_pressed(ldisc_t *ldisc, char c)
 size_t ldisc_get_current_line_raw(ldisc_t *ldisc, char *s)
 {
     size_t i = 0;
-    while (ldisc->ldisc_tail != ldisc->ldisc_head) { /// what should the check be???
-        s[i] = ldisc->ldisc_buffer[ldisc->ldisc_tail];
-        ldisc->ldisc_tail = (ldisc->ldisc_tail + 1) % LDISC_BUFFER_SIZE;
-        i++;
-    }
+    // while (ldisc->ldisc_tail != ldisc->ldisc_head) { /// what should the check be???
+    //     // s[i] = ldisc->ldisc_buffer[ldisc->ldisc_tail];
+    //     //ldisc->ldisc_tail = (ldisc->ldisc_tail + 1) % LDISC_BUFFER_SIZE;
+    //     i++;
+    // }
     //NOT_YET_IMPLEMENTED("DRIVERS: ldisc_get_current_line_raw");
-    return 0;
+    // memcpy(s, ldisc->ldisc_buffer)
+    // if (ldisc_head < cooked )
+    // return 0;
+    /*
+    if head < cooked:
+    memcopy stuff between it
+    else is less than cooked: 
+    memcopy stuff from cooked to end, and from bgenning to head*/
+    if (ldisc->ldisc_head < ldisc->ldisc_cooked) {
+        memcpy(s, ldisc->ldisc_buffer + ldisc->ldisc_head, ldisc->ldisc_cooked - ldisc->ldisc_head);
+        i = ldisc->ldisc_cooked - ldisc->ldisc_head;
+    }
+    else {
+        memcpy(s, ldisc->ldisc_buffer + ldisc->ldisc_head, LDISC_BUFFER_SIZE - ldisc->ldisc_head);
+        memcpy(s + LDISC_BUFFER_SIZE - ldisc->ldisc_head, ldisc->ldisc_buffer, ldisc->ldisc_cooked);
+        i = LDISC_BUFFER_SIZE - ldisc->ldisc_head + ldisc->ldisc_cooked;
+    }
+    return i;
 }
+

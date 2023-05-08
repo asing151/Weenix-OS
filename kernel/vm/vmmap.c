@@ -655,24 +655,30 @@ long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages)
  */
 long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
 {
-    // vmarea_t *vma;
+    vmarea_t *vma;
+    // call vmmmap lookup
+    // 2. mobj get pframe 
+    // while loop:
+    /*
+    vmarear can take all or PAGESIZE- offset, keep going tioll all read
+    */
 
-    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
-    // {
-    //     if (vma->vma_start <= ADDR_TO_PN(vaddr) && vma->vma_end >= ADDR_TO_PN(vaddr) + ADDR_TO_PN(count))
-    //     {
-    //         pframe_t *pf;
-    //         size_t offset = ADDR_TO_PN(vaddr) - vma->vma_start;
-    //         size_t size = ADDR_TO_PN(count);
-    //         for (size_t i = 0; i < size; i++)
-    //         {
-    //             pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
-    //             memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
-    //             pframe_put(pf);
-    //         }
-    //         return 0;
-    //     }
-    // }
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        if (vma->vma_start <= ADDR_TO_PN(vaddr) && vma->vma_end >= ADDR_TO_PN(vaddr) + ADDR_TO_PN(count))
+        {
+            pframe_t *pf;
+            size_t offset = ADDR_TO_PN(vaddr) - vma->vma_start;
+            size_t size = ADDR_TO_PN(count);
+            for (size_t i = 0; i < size; i++)
+            {
+                pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
+                memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
+                pframe_put(pf);
+            }
+            return 0;
+        }
+    }
 
 
     NOT_YET_IMPLEMENTED("VM: vmmap_read");

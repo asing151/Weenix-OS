@@ -197,16 +197,17 @@ long s5fs_mount(fs_t *fs)
  *    1) Initialize vn_devid by reading the inode's s5_indirect_block field.
  *    2) Set vn_ops to NULL.
  */
-static void s5fs_read_vnode(fs_t *fs, vnode_t *vn)
+static void s5fs_read_vnode(fs_t *fs, vnode_t *vn) /// verify
 {
-    // s5_node_t s5_node = VNODE_TO_S5NODE(vn);
-    // s5fs_t *s5fs = FS_TO_S5FS(fs);
-    // pframe_t *pf;
-    // s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->v_ino), 0, &pf);
-    // s5_inode_t *inode = (s5_inode_t *)(pf->pf_addr + S5_INODE_OFFSET(vn->v_ino));
-    // s5_node->inode = inode; //// memcopy instead
-    // s5_node->dirtxied_inode = 0;
-    // s5_release_disk_block(&pf);/// release here or later?
+    s5_node_t *s5_node = VNODE_TO_S5NODE(vn);
+    s5fs_t *s5fs = FS_TO_S5FS(fs);
+    pframe_t *pf;
+    s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->vn_vno), 0, &pf);
+    s5_inode_t *inode = (s5_inode_t *)(&pf->pf_addr + S5_INODE_OFFSET(vn->vn_vno));
+    //s5_node->inode = inode; //// memcopy instead
+    memcpy(&s5_node->inode, inode, sizeof(s5_inode_t));
+    s5_node->dirtied_inode = 0;
+    s5_release_disk_block(&pf);/// release here or later?
 
 // #define S_IFCHR 0x0100 /* character special */
 // #define S_IFDIR 0x0200 /* directory */
@@ -223,48 +224,48 @@ static void s5fs_read_vnode(fs_t *fs, vnode_t *vn)
 // #define S_ISLNK(m) (_S_TYPE(m) == S_IFLNK)
 // #define S_ISFIFO(m) (_S_TYPE(m) == S_IFIFO) FREE,DATA,DIR,CHR,BLK  
 
-    // vn->vn_ops = NULL;
+    vn->vn_ops = NULL;
 
-//     if (S_ISCHR(vn->vn_mode) || S_ISBLK(vn->vn_mode))
-//     {
-//         vn->vn_devid = inode->s5_indirect_block;
-//         if (S_ISCHR(vn->vn_mode)){
-//             vn->vn_mode = S_IFCHR;
-//         } else {
-//             vn->vn_mode = S_IFBLK;
-//         }
-//          //// now for remaining types
-//     } else if (S_ISDIR(vn->vn_mode)){
-//         vn->vn_mode = S_IFDIR;
-//         //vn->vn_ops = &s5fs_dir_vops;
-//     } else if (S_ISREG(vn->vn_mode)){
-//         vn->vn_mode = S_IFREG;
-//         //vn->vn_ops = &s5fs_file_vops;
-//     } else if (S_ISLNK(vn->vn_mode)){
-//         vn->vn_mode = S_IFLNK;
+    if (S_ISCHR(vn->vn_mode) || S_ISBLK(vn->vn_mode))
+    {
+        vn->vn_devid = inode->s5_indirect_block;
+        if (S_ISCHR(vn->vn_mode)){
+            vn->vn_mode = S_IFCHR;
+        } else {
+            vn->vn_mode = S_IFBLK;
+        }
+         //// now for remaining types
+    } else if (S_ISDIR(vn->vn_mode)){
+        vn->vn_mode = S_IFDIR;
+        //vn->vn_ops = &s5fs_dir_vops;
+    } else if (S_ISREG(vn->vn_mode)){
+        vn->vn_mode = S_IFREG;
+        //vn->vn_ops = &s5fs_file_vops;
+    } else if (S_ISLNK(vn->vn_mode)){
+        vn->vn_mode = S_IFLNK;
 
-//     } else if (S_ISFIFO(vn->vn_mode)){
-//         vn->vn_mode = S_IFIFO;
+    } else if (S_ISFIFO(vn->vn_mode)){
+        vn->vn_mode = S_IFIFO;
 
-//     } else {
-//         panic("s5fs_read_vnode: unknown mode");
-//     }
+    } else {
+        panic("s5fs_read_vnode: unknown mode");
+    }
 
-// //     //// else case only ops n mode
+//     //// else case only ops n mode
 
-//     //vn->vn_len = inode->s5_size; /// why can't we access inode->s5_size?
-//     if (vn->vn_mode == S_IFDIR)
-//     {
-//         vn->vn_ops = &s5fs_file_vops; 
-//     } else if (vn->vn_mode == S_IFREG) {
-//         vn->vn_ops = &s5fs_file_vops; 
-//     }
-//     vn->vn_mode = inode->s5_type;
-//     vn->vn_ops = &s5fs_file_vops; 
+    //vn->vn_len = inode->s5_size; 
+    if (vn->vn_mode == S_IFDIR)
+    {
+        vn->vn_ops = &s5fs_file_vops; 
+    } else if (vn->vn_mode == S_IFREG) {
+        vn->vn_ops = &s5fs_file_vops; 
+    }
+    vn->vn_mode = inode->s5_type;
+    vn->vn_ops = &s5fs_file_vops; 
 
 //      /// else case needed?
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
+    //NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
 }
 
 /* Clean up the inode corresponding to the given vnode.
@@ -280,20 +281,20 @@ static void s5fs_read_vnode(fs_t *fs, vnode_t *vn)
  */
 static void s5fs_delete_vnode(fs_t *fs, vnode_t *vn)
 {
-    // s5_node_t s5_node = VNODE_TO_S5NODE(vn);
-    // if (s5_node->inode->s5_linkcount == 0)
-    // {
-    //     s5_free_inode(fs, vn->v_ino);
-    // }
-    // else if (s5_node->dirtied_inode)
-    // {
-    //     pframe_t *pf;
-    //     s5fs_t *s5fs = FS_TO_S5FS(fs);
-    //     s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->v_ino), 0, &pf);
-    //     memcpy(pf->pf_addr + S5_INODE_OFFSET(vn->v_ino), s5_node->inode, sizeof(s5_inode_t));
-    //     s5_release_disk_block(&pf);
-    // }
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode");
+    s5_node_t *s5_node = VNODE_TO_S5NODE(vn);
+    if (s5_node->inode.s5_linkcount == 0)
+    {
+        s5_free_inode(FS_TO_S5FS(fs), vn->vn_vno);
+    }
+    else if (s5_node->dirtied_inode)
+    {
+        pframe_t *pf;
+        s5fs_t *s5fs = FS_TO_S5FS(fs);
+        s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->vn_vno), 1, &pf); /// 1 for write, right?
+        memcpy(&pf->pf_addr + S5_INODE_OFFSET(vn->vn_vno), &s5_node->inode, sizeof(s5_inode_t));
+        s5_release_disk_block(&pf);
+    }
+    //NOT_YET_IMPLEMENTED("S5FS: s5fs_delete_vnode");
 }
 
 /*
@@ -352,35 +353,37 @@ static void s5fs_sync(fs_t *fs)
 /* Wrapper around s5_read_file. */
 static ssize_t s5fs_read(vnode_t *vnode, size_t pos, void *buf, size_t len)
 {
-    // KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
-    // s5fs_t *s5fs = FS_TO_S5FS(vnode->vn_fs);
-    // s5_node_t s5_node = VNODE_TO_S5NODE(vnode);
-    // return s5_read_file(s5fs, s5_node, pos, buf, len);
+    //KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
+    s5fs_t *s5fs = FS_TO_S5FS(vnode->vn_fs);
+    s5_node_t *s5_node = VNODE_TO_S5NODE(vnode);
+    return s5_read_file(s5_node, pos, (char *)buf, len); // correct the arguments order:
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_read");
-    return -1;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_read");
+    // return -1;
 }
 
 /* Wrapper around s5_write_file. */
 static ssize_t s5fs_write(vnode_t *vnode, size_t pos, const void *buf,
                           size_t len)
 {
-    // KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
+    //KASSERT(!S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
 
-    // return s5_write_file(vnode, pos, buf, len);
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_write");
-    return -1;
+    return s5_write_file(VNODE_TO_S5NODE(vnode) , pos, (char *)buf, len);
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_write");
+    // return -1;
 }
 
 /*
  * Any error handling should have been done before this function was called.
  * Simply add a reference to the underlying mobj and return it through ret.
  */
-static long s5fs_mmap(vnode_t *file, mobj_t **ret)
+static long s5fs_mmap(vnode_t *file, mobj_t **ret) /// verify
 {
     // add a reference to the underlying mobj and return it through ret
     // file->vn_mobj = &ret; /// this is it?
-    NOT_YET_IMPLEMENTED("VM: s5fs_mmap");
+    file->vn_mobj.mo_refcount++;
+    *ret = &file->vn_mobj;
+    //NOT_YET_IMPLEMENTED("VM: s5fs_mmap");
     return 0;
 }
 
@@ -407,34 +410,40 @@ static long s5fs_mmap(vnode_t *file, mobj_t **ret)
  *      the link operation fails. 
  */
 static long s5fs_mknod(struct vnode *dir, const char *name, size_t namelen,
-                       int mode, devid_t devid, struct vnode **out)
+                       int mode, devid_t devid, struct vnode **out) /// verify 
 {
     // KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level");
 
-    // if (mode != S_IFCHR && mode != S_IFBLK && mode != S_IFREG)
-    // {
-    //     return -ENOTSUP;
-    // }
+    if (mode != S_IFCHR && mode != S_IFBLK && mode != S_IFREG)
+    {
+        return -ENOTSUP;
+    }
 
-    // s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
-    // s5_node_t s5_node;
-    // int alloc = s5_alloc_inode(s5fs, mode, &s5_node);
+    s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
+    s5_node_t *parent_dir = VNODE_TO_S5NODE(dir);
 
-    // vnode_t *vnode;
-    // vnode = vget(dir->vn_fs, s5_node, &vnode);
+    long alloc = s5_alloc_inode(s5fs, mode, devid);
+    if (alloc < 0)
+    {
+        return alloc;
+    }
 
-    // err = s5_link(dir, name, namelen, vnode);
-    // if (err < 0)
-    // {
-    //     vput(vnode);
-    //     return err;
-    // }
+    vnode_t *vnode = vget(dir->vn_fs, alloc); /// right args, error check?
+    // get child inode
+    s5_node_t *child = VNODE_TO_S5NODE(vnode);
 
-    // *out = vnode;
-    // return 0;
+    long link = s5_link(parent_dir, name, namelen, child); /// what args?
+    if (link < 0)
+    {
+        vput(&vnode);
+        return link;
+    }
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod");
-    return -1;
+    *out = vnode;
+    return 0;
+
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_mknod");
+    // return -1;
 }
 
 /* Search for a given entry within a directory.
@@ -455,29 +464,25 @@ static long s5fs_mknod(struct vnode *dir, const char *name, size_t namelen,
 long s5fs_lookup(vnode_t *dir, const char *name, size_t namelen,
                  vnode_t **ret)
 {
-    // s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
-    // s5_node_t s5_node;
-    // int err = s5_find_dirent(s5fs, VNODE_TO_S5NODE(dir), name, namelen, &s5_node);
-    // if (err < 0)
-    // {
-    //     return err;
-    // }
+    //s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
+    s5_node_t s5_node;
 
-    // vnode_t *vnode;
-    // err = vget(dir->vn_fs, s5_node, &vnode);
-    // if (err < 0)
-    // {
-    //     return err;
-    // }
+    int inode_num = s5_find_dirent(VNODE_TO_S5NODE(dir), name, namelen, NULL); /// what pos?
+    if (inode_num < 0)
+    {
+        return inode_num;
+    }
 
-    // if (vnode == dir)
-    // {
-    //     vref(vnode);
-    // }
-    // *ret = vnode;
-    // return 0;
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_lookup");
-    return -1;
+    vnode_t *vnode = vget(dir->vn_fs, inode_num); /// error check?
+
+    if (vnode == dir)
+    {
+        vref(vnode);
+    }
+    *ret = vnode;
+    return 0;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_lookup");
+    // return -1;
 }
 
 /* Wrapper around s5_link.
@@ -488,21 +493,20 @@ long s5fs_lookup(vnode_t *dir, const char *name, size_t namelen,
 static long s5fs_link(vnode_t *dir, const char *name, size_t namelen,
                       vnode_t *child)
 {
-    // KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level");
-    // if (S_ISDIR(child->vn_mode))
-    // {
-    //     return -EISDIR;
-    // }
+    KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level");
+    if (S_ISDIR(child->vn_mode))
+    {
+        return -EISDIR;
+    }
     // s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
     // s5_node_t s5_node = VNODE_TO_S5NODE(child);
     
-    // s5fs *child_s5fs = FS_TO_S5FS(child->vn_fs);
     // s5_node_t child_s5_node = VNODE_TO_S5NODE(child);
-    // return s5_link(s5_node, name, namelen, child_s5_node);
+    return s5_link(VNODE_TO_S5NODE(dir), name, namelen, VNODE_TO_S5NODE(child)); /// what args?
 
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_link");
-    return -1;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_link");
+    // return -1;
 }
 
 /* Remove the directory entry in dir corresponding to name and namelen.
@@ -518,38 +522,26 @@ static long s5fs_link(vnode_t *dir, const char *name, size_t namelen,
  */
 static long s5fs_unlink(vnode_t *dir, const char *name, size_t namelen)
 {
-    // KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level");
+    // KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level"); /// any kasserts?
     // KASSERT(!name_match(".", name, namelen));
     // KASSERT(!name_match("..", name, namelen));  
 
-    // s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
-    // s5_node_t s5_node;
-    // int err = s5_find_dirent(s5fs, name, namelen, &s5_node);
-    // if (err < 0)
-    // {
-    //     return err;
-    // }
+    //s5_node_t *s5fs = FS_TO_S5FS(dir->vn_fs);
+    int node_num = s5_find_dirent(VNODE_TO_S5NODE(dir), name, namelen, NULL);
+    if (node_num < 0)
+    {
+        return node_num;
+    }
 
-    // vnode_t *vnode;
-    // err = vget_locked(dir->vn_fs, s5_node, &vnode);
-    // if (err < 0)
-    // {
-    //     return err;
-    // }
+    vnode_t *vnode = vget_locked(dir->vn_fs, (ino_t)node_num);
 
-    // err = s5_remove_dirent(s5fs, name, namelen, vnode);
-    // if (err < 0)
-    // {
-    //     vput_locked(vnode);
-    //     return err;
-    // }
-
-    // vput_locked(vnode); /// should be in an else case?
-    // return 0;
+    s5_remove_dirent(VNODE_TO_S5NODE(dir), name, namelen, VNODE_TO_S5NODE(vnode)); /// what args?
+    vput_locked(&vnode); /// should be in an else case?
+    return 0;
 
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_unlink");
-    return -1;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_unlink");
+    // return -1;
 }
 
 /* Change the name or location of a file.
@@ -600,21 +592,54 @@ static long s5fs_rename(vnode_t *olddir, const char *oldname, size_t oldnamelen,
                         vnode_t *newdir, const char *newname,
                         size_t newnamelen) /// not needed right?
 {
-    KASSERT(S_ISDIR(olddir->vn_mode) && "should be handled at the VFS level");
-    KASSERT(S_ISDIR(newdir->vn_mode) && "should be handled at the VFS level");
-    KASSERT(!name_match(".", oldname, oldnamelen));
 
-    // if (newnamelen >= NAME_LEN)
-    // {
-    //     return -ENAMETOOLONG;
-    // }
 
-    // s5fs_t *s5fs = FS_TO_S5FS(olddir->vn_fs);
-    // s5_node_t s5_node;
-    // int err = s5_find_dirent(s5fs, VNODE_TO_S5NODE(olddir), oldname, oldnamelen, &s5_node);
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_rename");
+    // return -1;
+    if (!S_ISDIR(newdir->vn_mode)){
+        return -ENOTDIR;
+    }
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_rename");
-    return -1;
+    if (newnamelen >= NAME_LEN){
+        return -ENAMETOOLONG;
+    }
+    long old_node_num = s5_find_dirent(VNODE_TO_S5NODE(olddir), oldname, oldnamelen, NULL);
+    if (old_node_num == -ENOENT){
+        return -ENOENT;
+    }
+
+    vnode_t *old_vnode = vget_locked(olddir->vn_fs, (ino_t)old_node_num);
+    long new_node_num = s5_find_dirent(VNODE_TO_S5NODE(newdir), newname, newnamelen, NULL);
+    if (new_node_num == -ENOENT){
+        if (new_node_num == old_node_num){
+        vput_locked(&old_vnode);
+        return 0;
+    }
+    vnode_t *new_vnode = vget_locked(newdir->vn_fs, (ino_t)new_node_num);
+    if (S_ISDIR(new_vnode->vn_mode)){
+        vput_locked(&old_vnode);
+        vput_locked(&new_vnode);
+        return -EISDIR;
+    }
+    s5_remove_dirent(VNODE_TO_S5NODE(newdir), newname, newnamelen, VNODE_TO_S5NODE(new_vnode));
+    vput_locked(&new_vnode);
+    long status = s5_link(VNODE_TO_S5NODE(newdir), newname, newnamelen, VNODE_TO_S5NODE(old_vnode));  
+    if (status != 0){
+        vput_locked(&old_vnode);
+        return status;
+    }
+    }
+    else{
+        long status = s5_link(VNODE_TO_S5NODE(newdir), newname, newnamelen, VNODE_TO_S5NODE(old_vnode));  
+        if (status != 0){
+        vput_locked(&old_vnode);
+        return status;
+        }
+    }
+
+    s5_remove_dirent(VNODE_TO_S5NODE(olddir), oldname, oldnamelen, VNODE_TO_S5NODE(old_vnode));
+    vput_locked(&old_vnode);
+    return 0;
 }
 
 /* Create a directory.
@@ -642,59 +667,52 @@ static long s5fs_rename(vnode_t *olddir, const char *oldname, size_t oldnamelen,
  *  - It may help to assert that linkcounts are correct.
  */
 static long s5fs_mkdir(vnode_t *dir, const char *name, size_t namelen,
-                       struct vnode **out)
+                       struct vnode **out) /// verify 
 {
-//     KASSERT(S_ISDIR((dir)->vn_mode) && "should be handled at the VFS level");
+    KASSERT(S_ISDIR((dir)->vn_mode) && "should be handled at the VFS level");
+    long alloc_inode = s5_alloc_inode(VNODE_TO_S5FS(dir), S_IFDIR, 0); /// devid?
+    if (alloc_inode < 0){
+        return alloc_inode;
+    }
 
-// //  * Steps:
-// //  * 1) Allocate an inode.
-// //  * 2) Get the child directory vnode.
-// //  * 3) Create the "." entry.
-// //  * 4) Create the ".." entry.
-// //  * 5) Create the name/namelen entry in the parent (that corresponds 
-// //  *    to the new directory)
+    vnode_t *child_vnode = vget(dir->vn_fs, (ino_t)alloc_inode); /// need error check in this case? /// vget locked instead?
+    // if (child_vnode == NULL){
+    //     s5_free_inode(VNODE_TO_S5FS(dir), (ino_t)alloc_inode);
+    //     return -1;
+    // } 
 
-//     // allocate an inode
-//     s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
-//     s5_inode_t *s5_inode;
-//     int err = s5_alloc_inode(s5fs, &s5_inode);
-//     if (err < 0)
-//     {
-//         return err;
-//     }
+    long status = s5_link(VNODE_TO_S5NODE(dir), name, namelen, VNODE_TO_S5NODE(child_vnode));
+    if (status != 0){
+        vput(&child_vnode);
+        s5_free_inode(VNODE_TO_S5FS(dir), (ino_t)alloc_inode);
+        return status;
+    }
 
-//     // get the child directory vnode
-//     vnode_t *child_vnode;
-//     err = vget(s5fs->s5fs_vnodes, err, &child_vnode);
+    status = s5_link(VNODE_TO_S5NODE(child_vnode), ".", 1, VNODE_TO_S5NODE(child_vnode));
+    if (status != 0){
+        s5_remove_dirent(VNODE_TO_S5NODE(dir), name, namelen, VNODE_TO_S5NODE(child_vnode));
+        vput(&child_vnode);
+        s5_free_inode(VNODE_TO_S5FS(dir), (ino_t)alloc_inode);
+        return status;
+    }
 
-//     // create the "." entry
-//     s5_dirent_t dot_entry;
-//     dot_entry.s5d_name[0] = '.';
-//     dot_entry.s5d_name[1] = '\0';
+    status = s5_link(VNODE_TO_S5NODE(child_vnode), "..", 2, VNODE_TO_S5NODE(dir));
+    if (status != 0){
+        s5_remove_dirent(VNODE_TO_S5NODE(dir), name, namelen, VNODE_TO_S5NODE(child_vnode));
+        s5_remove_dirent(VNODE_TO_S5NODE(child_vnode), ".", 1, VNODE_TO_S5NODE(child_vnode));
+        vput(&child_vnode);
+        s5_free_inode(VNODE_TO_S5FS(dir), (ino_t)alloc_inode); /// correct?
+        return status;
+    }
 
-//     dot_entry.s5d_inode = s5_inode->s5_number;
-//     err = s5_link(s5fs, VNODE_TO_S5NODE(dir), &dot_entry);
+    *out = child_vnode;
+    return 0;
 
-//     // create the ".." entry
-//     s5_dirent_t dotdot_entry;
-//     dotdot_entry.s5d_name[0] = '.';
-//     dotdot_entry.s5d_name[1] = '.';
-//     dotdot_entry.s5d_name[2] = '\0';
 
-//     dotdot_entry.s5d_inode = dir->vn_vno;
-//     err = s5_link(s5fs, VNODE_TO_S5NODE(child_vnode), &dotdot_entry);
-    
-//     // create the name/namelen entry in the parent
-//     s5_dirent_t new_entry;
-//     new_entry.s5d_name = name;
-//     new_entry.s5d_inode = s5_inode->s5_number;
-//     err = s5_link(s5fs, VNODE_TO_S5NODE(dir), &new_entry);
 
-//     *out = child_vnode;
-//     return 0;
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_mkdir");
-    return -1;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_mkdir");
+    // return -1;
 }
 
 /* Remove a directory.
@@ -724,10 +742,41 @@ static long s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
     // }
 
     // // remove the three entries created in s5fs_mkdir
+    if (namelen == 1 && name_match(".", name, namelen)){ /// need these?
+        return -ENOTDIR;
+    }
+    if (namelen == 2 && name_match("..", name, namelen)){
+        return -ENOTDIR;
+    }
+
+    s5_dirent_t *dirent = NULL;
+    long err = s5_find_dirent(VNODE_TO_S5NODE(parent), name, namelen, NULL);
+    if (err < 0){
+        return err;
+    }
+
+    vnode_t *child_vnode = vget(parent->vn_fs, dirent->s5d_inode);
+    if (child_vnode == NULL){
+        return -1;
+    }
+
+    if (child_vnode->vn_len > 2 * sizeof(s5_dirent_t)){ /// checking length correctly?
+        vput(&child_vnode);
+        return -ENOTEMPTY;
+    }
+
+    s5_remove_dirent(VNODE_TO_S5NODE(parent), name, namelen, VNODE_TO_S5NODE(child_vnode));
+
+    s5_remove_dirent(VNODE_TO_S5NODE(child_vnode), ".", 1, VNODE_TO_S5NODE(child_vnode));
+
+    s5_remove_dirent(VNODE_TO_S5NODE(child_vnode), "..", 2, VNODE_TO_S5NODE(parent));
+
+    vput(&child_vnode);
+    return 0;
+
+    //NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir");
 
 
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_rmdir");
-    return -1;
 }
 
 /* Read a directory entry.
@@ -746,11 +795,26 @@ static long s5fs_rmdir(vnode_t *parent, const char *name, size_t namelen)
  *  - Be careful that you read into an s5_dirent_t and populate the provided
  *    dirent_t properly.
  */
-static long s5fs_readdir(vnode_t *vnode, size_t pos, struct dirent *d)
+static long s5fs_readdir(vnode_t *vnode, size_t pos, struct dirent *d) /// verify
 {
-    KASSERT(S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");
-    return -1;
+
+    // KASSERT(S_ISDIR(vnode->vn_mode) && "should be handled at the VFS level");
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_readdir");
+    // return -1;
+
+
+    s5_dirent_t s5_dirent; // s5_node_t *sn, size_t pos, char *buf, size_t len
+    int err = s5_read_file(VNODE_TO_S5NODE(vnode), pos, (char *)&s5_dirent, sizeof(s5_dirent_t));
+    if (err < 0)
+    {
+        return err;
+    }
+
+    d->d_ino = s5_dirent.s5d_inode;
+    strcpy(d->d_name, s5_dirent.s5d_name);
+    d->d_off = pos + sizeof(s5_dirent_t); /// correct?
+
+    return err; 
 }
 
 /* Get file status.
@@ -773,8 +837,29 @@ static long s5fs_readdir(vnode_t *vnode, size_t pos, struct dirent *d)
  */
 static long s5fs_stat(vnode_t *vnode, stat_t *ss)
 {
-    NOT_YET_IMPLEMENTED("S5FS: s5fs_stat");
-    return -1;
+    // NOT_YET_IMPLEMENTED("S5FS: s5fs_stat");
+ 
+
+    s5_node_t *s5_node = VNODE_TO_S5NODE(vnode);
+    s5_inode_t *s5_inode = &s5_node->inode; /// &?
+    s5fs_t *s5fs = FS_TO_S5FS(vnode->vn_fs);
+    blockdev_t *bd = s5fs->s5f_bdev;
+    ss->st_blocks = s5_inode_blocks(s5_node); /// check
+    ss->st_mode = vnode->vn_mode;
+    ss->st_rdev = vnode->vn_devid;
+    ss->st_ino = s5_inode->s5_number;
+    ss->st_nlink = s5_inode->s5_linkcount;
+    ss->st_blksize = S5_BLOCK_SIZE;
+    ss->st_size = s5_inode->s5_un.s5_size;
+    ss->st_dev = bd->bd_id;
+    ss->st_uid = 0;
+    ss->st_gid = 0;
+    ss->st_atime = 0;
+    ss->st_mtime = 0;
+    ss->st_ctime = 0;
+
+    return 0;
+    
 }
 
 /**
