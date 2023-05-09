@@ -203,67 +203,77 @@ static void s5fs_read_vnode(fs_t *fs, vnode_t *vn) /// verify
     s5fs_t *s5fs = FS_TO_S5FS(fs);
     pframe_t *pf;
     s5_get_disk_block(s5fs, S5_INODE_BLOCK(vn->vn_vno), 0, &pf);
-    s5_inode_t *inode = (s5_inode_t *)(&pf->pf_addr + S5_INODE_OFFSET(vn->vn_vno));
+    s5_inode_t *inode = (s5_inode_t *)(&pf->pf_addr)+ S5_INODE_OFFSET(vn->vn_vno);
     //s5_node->inode = inode; //// memcopy instead
     memcpy(&s5_node->inode, inode, sizeof(s5_inode_t));
     s5_node->dirtied_inode = 0;
     s5_release_disk_block(&pf);/// release here or later?
-
-// #define S_IFCHR 0x0100 /* character special */
-// #define S_IFDIR 0x0200 /* directory */
-// #define S_IFBLK 0x0400 /* block special */
-// #define S_IFREG 0x0800 /* regular */
-// #define S_IFLNK 0x1000 /* symlink */
-// #define S_IFIFO 0x2000 /* fifo/pipe */
-
-// #define _S_TYPE(m) ((m)&0xFF00)
-// #define S_ISCHR(m) (_S_TYPE(m) == S_IFCHR)
-// #define S_ISDIR(m) (_S_TYPE(m) == S_IFDIR)
-// #define S_ISBLK(m) (_S_TYPE(m) == S_IFBLK)
-// #define S_ISREG(m) (_S_TYPE(m) == S_IFREG)
-// #define S_ISLNK(m) (_S_TYPE(m) == S_IFLNK)
-// #define S_ISFIFO(m) (_S_TYPE(m) == S_IFIFO) FREE,DATA,DIR,CHR,BLK  
-
-    vn->vn_ops = NULL;
-
-    if (S_ISCHR(vn->vn_mode) || S_ISBLK(vn->vn_mode))
-    {
-        vn->vn_devid = inode->s5_indirect_block;
-        if (S_ISCHR(vn->vn_mode)){
-            vn->vn_mode = S_IFCHR;
-        } else {
-            vn->vn_mode = S_IFBLK;
-        }
-         //// now for remaining types
-    } else if (S_ISDIR(vn->vn_mode)){
-        vn->vn_mode = S_IFDIR;
-        //vn->vn_ops = &s5fs_dir_vops;
-    } else if (S_ISREG(vn->vn_mode)){
+    
+    if (s5_node->inode.s5_type == S5_TYPE_FREE){
+        panic("s5fs_read_vnode: inode type is free");
+    } else if (s5_node->inode.s5_type == S5_TYPE_DATA){
+        vn->vn_len = s5_node->inode.s5_un.s5_size;
         vn->vn_mode = S_IFREG;
-        //vn->vn_ops = &s5fs_file_vops;
-    } else if (S_ISLNK(vn->vn_mode)){
-        vn->vn_mode = S_IFLNK;
-
-    } else if (S_ISFIFO(vn->vn_mode)){
-        vn->vn_mode = S_IFIFO;
-
+        vn->vn_ops = &s5fs_file_vops;
+    } else if (s5_node->inode.s5_type == S5_TYPE_DIR){
+        vn->vn_len = s5_node->inode.s5_un.s5_size;
+        vn->vn_mode = S_IFDIR;
+        vn->vn_ops = &s5fs_dir_vops;
+    } else if (s5_node->inode.s5_type == S5_TYPE_CHR){
+        vn->vn_len = s5_node->inode.s5_un.s5_size;
+        vn->vn_mode = S_IFCHR;
+        vn->vn_devid = s5_node->inode.s5_indirect_block;
+        vn->vn_ops = NULL;
+    } else if (s5_node->inode.s5_type == S5_TYPE_BLK){
+        vn->vn_len = s5_node->inode.s5_un.s5_size;
+        vn->vn_mode = S_IFBLK;
+        vn->vn_devid = s5_node->inode.s5_indirect_block;
+        vn->vn_ops = NULL;
     } else {
-        panic("s5fs_read_vnode: unknown mode");
+        panic("s5fs_read_vnode: inode type is invalid");
     }
+    
+
+
+    // if (s5_node->inode.s5_type == S5_DATA_BLOCK || s5_node->inode.s5_type == S5_TYPE_BLK){
+    //     vn->vn_devid = inode->s5_indirect_block;
+    //     if (S_ISCHR(vn->vn_mode)){
+    //         vn->vn_mode = S_IFCHR;
+    //     } else {
+    //         vn->vn_mode = S_IFBLK;
+    //     }
+    //      //// now for remaining types
+    // } else if (S_ISDIR(vn->vn_mode)){
+    //     vn->vn_mode = S_IFDIR;
+    //     //vn->vn_ops = &s5fs_dir_vops;
+    // } else if (S_ISREG(vn->vn_mode)){
+    //     vn->vn_mode = S_IFREG;
+    //     //vn->vn_ops = &s5fs_file_vops;
+    // } else if (S_ISLNK(vn->vn_mode)){
+    //     vn->vn_mode = S_IFLNK;
+
+    // } else if (S_ISFIFO(vn->vn_mode)){
+    //     vn->vn_mode = S_IFIFO;
+
+    // } else if (S5_TYPE_BLK){
+
+    // }{
+    //     panic("s5fs_read_vnode: unknown mode");
+    // } 
 
 //     //// else case only ops n mode
 
     //vn->vn_len = inode->s5_size; 
-    if (vn->vn_mode == S_IFDIR)
-    {
-        vn->vn_ops = &s5fs_file_vops; 
-    } else if (vn->vn_mode == S_IFREG) {
-        vn->vn_ops = &s5fs_file_vops; 
-    }
-    vn->vn_mode = inode->s5_type;
-    vn->vn_ops = &s5fs_file_vops; 
+//     if (vn->vn_mode == S_IFDIR)
+//     {
+//         vn->vn_ops = &s5fs_file_vops; 
+//     } else if (vn->vn_mode == S_IFREG) {
+//         vn->vn_ops = &s5fs_file_vops; 
+//     }
+//     vn->vn_mode = inode->s5_type;
+//     vn->vn_ops = &s5fs_file_vops; 
 
-//      /// else case needed?
+// //      /// else case needed?
 
     //NOT_YET_IMPLEMENTED("S5FS: s5fs_read_vnode");
 }
@@ -414,21 +424,26 @@ static long s5fs_mknod(struct vnode *dir, const char *name, size_t namelen,
 {
     // KASSERT(S_ISDIR(dir->vn_mode) && "should be handled at the VFS level");
 
-    uint16_t type = 0;
-    if (S_ISCHR(mode))
+    if (mode != S_IFCHR && mode != S_IFBLK && mode != S_IFREG)
     {
-        type = S5_TYPE_CHR;
-    }
-    else if (S_ISBLK(mode))
-    {
-        type = S5_TYPE_BLK;
-    }
-    else if (S_ISREG(mode))
-    {
-        type = S5_TYPE_REG;
-    } else {
         return -ENOTSUP;
     }
+
+    // uint16_t type = 0;
+    // if (S_ISCHR(mode))
+    // {
+    //     type = S5_TYPE_CHR;
+    // }
+    // else if (S_ISBLK(mode))
+    // {
+    //     type = S5_TYPE_BLK;
+    // }
+    // else if (S_ISREG(mode))
+    // {
+    //     type = S5_TYPE_
+    // } else {
+    //     return -ENOTSUP;
+    // }
 
     s5fs_t *s5fs = FS_TO_S5FS(dir->vn_fs);
     s5_node_t *parent_dir = VNODE_TO_S5NODE(dir);
@@ -450,6 +465,7 @@ static long s5fs_mknod(struct vnode *dir, const char *name, size_t namelen,
         return link;
     }
 
+    //vput(&vnode); /// right?
     *out = vnode;
     return 0;
 

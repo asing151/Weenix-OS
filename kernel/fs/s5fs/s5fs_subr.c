@@ -687,34 +687,37 @@ long s5_find_dirent(s5_node_t *sn, const char *name, size_t namelen,
 
     // / name_match
     size_t offset = 0;
-    if (filepos)
-    {
-        offset = *filepos;
-    }
+    // if (filepos)
+    // {
+    //     offset = *filepos;
+    // }
 
 
     s5_dirent_t dirent;
-    size_t offset = 0
-    while (offset <///
+    //size_t offset = 0;
+    while (offset < sn->vnode.vn_len)
     {
         // if s5_read_file(sn, count, dirent, sizeof(s5_dirent_t)) works:
         // check if dirent inode is allocated (!= -1)
 
-        int ret = s5_read_file(sn, offset, dirent, sizeof(s5_dirent_t));
-        if (ret <= 0){
-           return -ENOENT;
+        int ret = s5_read_file(sn, offset, (char *)&dirent, sizeof(s5_dirent_t));
+        if (ret == 0)
+        {
+            return -ENOENT;
         }
 
-        if (strncmp(dirent.s5d_name, name, namelen) == 0)
+        if (name_match(dirent.s5d_name, name, namelen))
         {
             if (filepos)
             {
                 *filepos = offset;
             }
-            return dirent.s5d_ino;
+            return dirent.s5d_inode;
         }
         offset += sizeof(s5_dirent_t);
     }
+
+    KASSERT(0); // should not reach here  
 
     return -ENOENT;
     // NOT_YET_IMPLEMENTED("S5FS: s5_find_dirent");
@@ -747,39 +750,37 @@ long s5_find_dirent(s5_node_t *sn, const char *name, size_t namelen,
 void s5_remove_dirent(s5_node_t *sn, const char *name, size_t namelen,
                       s5_node_t *child)
 {
-//     vnode_t *dir = &sn->vnode;
-//     s5_inode_t *inode = &sn->inode;
+    KASSERT(S_ISDIR(sn->vnode.vn_mode));
+    KASSERT(child!=NULL);
 
-//     KASSERT(S_ISDIR(dir->vn_mode));
-    
-//     // kassert to check that found directory entry corresponds to child
-//    /// how to check if it is actually the child? - compare outout of find with child->inode->s5 number
-//     size_t filepos;
-//     long ino = s5_find_dirent(sn, name, namelen, &filepos);
-//     KASSERT(ino != -1);//// ERR PROpagate inst
-//     KASSERT(child->inode.s5_ino == ino);
+    size_t filepos;
+    long ino = s5_find_dirent(sn, name, namelen, &filepos);
+    KASSERT(ino >= 0);
+    KASSERT(child->inode.s5_number == ino);
 
-//     // next steps:
-//     // initilize a char buf of length sizeof(s5_dirent_t)
-//     // read the last dirent into the buf
-//     // write the buf to the filepos
-//     // truncate the file by sizeof(s5_dirent_t)
-//     // decrement the child's linkcount
-//     // mark the inodes as dirtied
+    // s5_dirent_t dirent;
+    // s5_read_file(sn, filepos, dirent, sizeof(s5_dirent_t));
 
-//     char buf[sizeof(s5_dirent_t)];
-//     size_t last_dirent_pos = inode->s5_size - sizeof(s5_dirent_t);
-//     s5_read_file(sn, buf, last_dirent_pos, sizeof(s5_dirent_t));
+    char buf[sizeof(s5_dirent_t)];
+    size_t last_dirent_pos = sn->inode.s5_un.s5_size - sizeof(s5_dirent_t);
+    s5_read_file(sn, last_dirent_pos, buf, sizeof(s5_dirent_t));
+    s5_write_file(sn, filepos, buf, sizeof(s5_dirent_t));
 
 //     //// args are switched probably
 //     s5_write_file(sn, buf, filepos, sizeof(s5_dirent_t));
     
-//     // truncate by adjusting vn len
-//     dir->vn_len -= sizeof(s5_dirent_t); /// inode len n vn len decr
-//     child->inode.s5_linkcount--;
-//     sn->dirtied_inode = 1;
-//     child->dirtied_inode = 1;
-//     sn->//// update size, decr bu dirent
+    // truncate by adjusting vn len
+    sn->vnode.vn_len -= sizeof(s5_dirent_t);
+    child->inode.s5_linkcount--;
+    sn->dirtied_inode = 1;
+    child->dirtied_inode = 1;
+
+
+    // dir->vn_len -= sizeof(s5_dirent_t); /// inode len n vn len decr
+    // child->inode.s5_linkcount--;
+    // sn->dirtied_inode = 1;
+    // child->dirtied_inode = 1;
+    // sn->//// update size, decr bu dirent
 
     // do all relevant cleanup now
     
@@ -787,7 +788,7 @@ void s5_remove_dirent(s5_node_t *sn, const char *name, size_t namelen,
     // do find dirent again to get filepos, read the file at the end and overwrite the dirent to remove with the last dirent
     // shorten everything, use a intermediary buf, findirent, read file, write file
 
-    NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent");
+    //NOT_YET_IMPLEMENTED("S5FS: s5_remove_dirent");
 }
 
 /* Replace a directory entry.
@@ -815,23 +816,18 @@ void s5_remove_dirent(s5_node_t *sn, const char *name, size_t namelen,
 void s5_replace_dirent(s5_node_t *sn, const char *name, size_t namelen,
                        s5_node_t *old, s5_node_t *new)
 {
-    vnode_t *dir = &sn->vnode;
-    s5_inode_t *inode = &sn->inode;
+    // KASSERT(S_ISDIR(sn->vnode.vn_mode));
+    // KASSERT(old!=NULL);
+    // KASSERT(new!=NULL);
 
-    KASSERT(dir != NULL);  
-    KASSERT(S_ISDIR(dir->vn_mode));
-    // kassert to check that found directory entry corresponds to child
-    /// how to check if it is actually the child?
-    size_t filepos;
-    long ino = s5_find_dirent(sn, name, namelen, &filepos);
-    KASSERT(ino != -1);
-    KASSERT(old->inode.s5_ino == ino);
+    // size_t filepos;
+    // long ino = s5_find_dirent(sn, name, namelen, &filepos);
+    // KASSERT(ino >= 0);
+    // KASSERT(old->inode.s5_number == ino);
 
+    // s5_dirent_t dirent;
+    // s5_read_file(sn, filepos, dirent, sizeof(s5_dirent_t));
 
-
-    // // size_t filepos;
-    // // long ino = s5_find_dirent(sn, name, namelen, &filepos);
-    // // KASSERT(ino != -1);
 
     NOT_YET_IMPLEMENTED("RENAMEDIR: s5_replace_dirent()");
 }
@@ -885,10 +881,10 @@ long s5_link(s5_node_t *dir, const char *name, size_t namelen,
 
 
     /// needed? call find dir at the end again to verify that the directory entry exists and that its inode is, as expected, the inode of child
-    // size_t filepos2;
-    // long ino2 = s5_find_dirent(dir, name, namelen, &filepos2);
-    // KASSERT(ino2 != -1);
-    // KASSERT(child->inode.s5i_no == ino2);
+
+    long ino2 = s5_find_dirent(dir, name, namelen, NULL);
+    KASSERT(ino2 != -ENOENT);
+    KASSERT(child->inode.s5_number == (uint32_t)ino2);
 
 
     // NOT_YET_IMPLEMENTED("S5FS: s5_link");
@@ -923,24 +919,27 @@ long s5_inode_blocks(s5_node_t *sn)
     {
         if (sn->inode.s5_direct_blocks[i] != 0)
         {
-            KASSER(sn->inode.s5_type != S5_TYPE_BLKDEV && sn->inode.s5_type != S5_TYPE_CHRDEV);
+            //KASSERT(sn->inode.s5_type != S5_TYPE_BLKDEV && sn->inode.s5_type != S5_TYPE_CHRDEV);
             count++;
         }
     }
 
-    s5fs_t`* s5 = FS_TO_S5FS(sn->vnode.vn_fs);
+    s5fs_t* s5 = VNODE_TO_S5FS(&sn->vnode); ///// idk
     pframe_t* pf;
+    s5_get_disk_block(s5, sn->inode.s5_indirect_block, 0, &pf);
 
-    s5_get_disk_block(s5, sn->inode.s5_indirect_block, &pf);
+    uint32_t* blocknumber = (uint32_t*)pf->pf_addr;
 
-    for (unsigned i = 0; i < S5_NINDIRECT_BLOCKS; i++)
+    for (unsigned i = 0; i < S5_NIDIRECT_BLOCKS; i++)
     {
-        blocknum_t blocknumber = (blocknum_t*)pf->pf_addr[i];
-        if (blocknumber != 0)
+        //blocknum_t blocknumber = (blocknum_t*)pf->pf_addr[i];
+        if (blocknumber[i] != 0)
         {
             count++;
         }
     }
+
+    s5_release_disk_block(&pf);
 
 
     // if (sn->inode.s5_indirect_block != 0)

@@ -346,12 +346,13 @@ long namev_open(vnode_t *base, const char *path, int oflags, int mode,
         if (res != 0) {
             vunlock(dirnode);
             vput(&dirnode);
-            vput(&filenode);
+            //vput(&filenode);
             return res;
         }
     } else if (res != 0) {
         vunlock(dirnode);
         vput(&dirnode);
+        
         //vput(&filenode);
         return res;
     }

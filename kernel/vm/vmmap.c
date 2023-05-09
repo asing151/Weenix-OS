@@ -662,6 +662,7 @@ long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
     /*
     vmarear can take all or PAGESIZE- offset, keep going tioll all read
     */
+   //mobj get pframe, vmmp_lookup 
 
     list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     {
@@ -672,9 +673,9 @@ long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
             size_t size = ADDR_TO_PN(count);
             for (size_t i = 0; i < size; i++)
             {
-                pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
+                //pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
                 memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
-                pframe_put(pf);
+                //pframe_put(pf);
             }
             return 0;
         }
