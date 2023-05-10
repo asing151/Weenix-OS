@@ -71,8 +71,8 @@ vmarea_t *vmarea_alloc(void)
     {
         memset(vma, 0, sizeof(vmarea_t));
         list_link_init(&vma->vma_plink);
-        vma->vma_obj = NULL;
-        vma->vma_vmmap = NULL; /// set these and any other fields?
+        // vma->vma_obj = NULL;
+        // vma->vma_vmmap = NULL; 
     }
     return vma;
 
@@ -107,15 +107,15 @@ void vmarea_free(vmarea_t *vma)
  */
 vmmap_t *vmmap_create(void)
 {
-    // vmmap_t *map = (vmmap_map *)slab_obj_alloc(vmmap_allocator);
-    // if (map) /// any locking or counts?
-    // {
-    //     memset(map, 0, sizeof(vmmap_t));
-    //     list_init(&map->vmm_list);
-    //     map->vmm_proc = NULL;
-    // }
-    // return map;
-    NOT_YET_IMPLEMENTED("VM: vmmap_create");
+    vmmap_t *map; //= (vmmap_map *)slab_obj_alloc(vmmap_allocator);
+    if (map) /// any locking or counts?
+    {
+        memset(map, 0, sizeof(vmmap_t));
+        list_init(&map->vmm_list);
+        map->vmm_proc = NULL;
+    }
+    return map;
+    NOT_YET_IMPLEMENTED("VM: vmmap_create"); /// make else case
     return NULL;
 }
 
@@ -126,17 +126,17 @@ vmmap_t *vmmap_create(void)
 void vmmap_destroy(vmmap_t **mapp)
 {
     // vmmap_t *map = *mapp;
-    // vmarea_t *vma;
-    // // use list_iterate to free each vma in the maps list
-    // list_iterate(&(*ma)->vmm_list, vma, vmarea_t, vma_plink)
-    // {
-    //     vmarea_free(vma);
-    // }
-    // slab_obj_free(vmmap_allocator, *map); /// this is right?
-    // *mapp = NULL;
+    vmarea_t *vma;
+    // use list_iterate to free each vma in the maps list
+    list_iterate(&(*mapp)->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        vmarea_free(vma);
+    }
+    slab_obj_free(vmmap_allocator, *mapp); /// this is right?
+    *mapp = NULL;
 
-//     //
-//    // NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
+    //
+   // NOT_YET_IMPLEMENTED("VM: vmmap_destroy");
 }
 
 /*
@@ -266,7 +266,7 @@ vmarea_t *vmmap_lookup(vmmap_t *map, size_t vfn)
     vmarea_t *vma;
     list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
     {
-        if (vma->vma_start <= vfn && vma->vma_end >= vfn)
+        if (vma->vma_start <= vfn && vma->vma_end > vfn)
         {
             return vma;
         }
@@ -312,6 +312,7 @@ void vmmap_collapse(vmmap_t *map)
  */
 vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any error cases? /// any locks
 {
+    //vmmap_collpase(map);
     vmmap_t *new_map = vmmap_create();
     if (new_map == NULL)
     {
@@ -334,11 +335,12 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
         new_vma->vma_flags = vma->vma_flags;
         new_vma->vma_obj = vma->vma_obj;
         new_vma->vma_vmmap = new_map;
-        mobj_ref(new_vma->vma_obj);
+        mobj_ref(new_vma->vma_obj); /// location?
 
         if (new_vma->vma_flags & MAP_SHARED)
         {
-            list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink); 
+            new_vma->vma_obj = vma->vma_obj;
+            // vmmmap_insert(new_map, new_vma); /// need this?
             continue;
         } 
         else
@@ -347,19 +349,24 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
             mobj_t *new_shadow = shadow_create(new_vma->vma_obj); /// should be vma instead of new_vma? if yes, adjust unlocking too
             mobj_t *old_shadow = shadow_create(new_vma->vma_obj);
             if (new_shadow == NULL || old_shadow == NULL)
-            {
+            { /// setrate
                 vmmap_destroy(new_map);
                 return NULL;
             }
             mobj_put(&vma->vma_obj); /// this?
             new_vma->vma_obj = new_shadow;
             vma->vma_obj = old_shadow;
+            // mobj_ref(new_vma->vma_obj);
+            // mobj_ref(vma->vma_obj);
+            mobj_unlock(new_vma->vma_obj);
+            mobj_unlock(vma->vma_obj);
 
-            list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink);
+            //list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink); /// outside if-else?
             //list_insert_tail(&map->vmm_list, &vma->vma_plink); /// confirm
             //mobj_lock(new_vma->vma_obj);
 
         }
+        //vmmmap_insert(new_map, new_vma); /// need this?
 
     }
     return new_map;
@@ -406,33 +413,52 @@ long vmmap_map(vmmap_t *map, vnode_t *file, size_t lopage, size_t npages,
 {
     KASSERT(map != NULL);
 
+    mobj_t *mobj;
     if (file == NULL)
     {
-        mobj_t *anon = anon_create();
-        if (anon == NULL)
+        mobj_t *mobj = anon_create(); /// anon free each time failing anywhere?
+        if (mobj == NULL)
         {
             return -ENOMEM;
         }
-        file->vn_mobj = *anon; /// type correct?
+        //file->vn_mobj = *anon; /// type correct?
     }
     else
     {
-        mobj_t *mobj;
         int result = file->vn_ops->mmap(file, &mobj);
         if (result < 0)
         {
             return result;
         }
-        file->vn_mobj = *mobj; /// type correct?
+        mobj_lock(mobj);
+        //file->vn_mobj = *mobj; /// type correct?
     }
 
-    if (lopage == 0)
+    
+    vmarea_t *vma = vmarea_alloc();
+    if (vma == NULL)
+    {
+        mobj_put_locked(&file->vn_mobj);
+        return -ENOMEM;
+    }
+
+    vma->vma_start = lopage;
+    vma->vma_end = lopage + npages;
+    vma->vma_prot = prot;
+    vma->vma_flags = flags;
+    vma->vma_off = ADDR_TO_PN(off);
+    vma->vma_obj = &file->vn_mobj; //// could be anonymous!!
+    vma->vma_vmmap = map;
+    mobj_ref(vma->vma_obj);
+
+    if (lopage == 0)  /// positioning of these checks?
     {
         int result = vmmap_find_range(map, npages, dir);
         if (result < 0)
         {
             return result;
         }
+        vma->vma_start = result;
     } else {
         if (flags & MAP_FIXED)
         {
@@ -445,42 +471,25 @@ long vmmap_map(vmmap_t *map, vnode_t *file, size_t lopage, size_t npages,
                 //}
             }
         }
-    
 
+    if (flags & MAP_PRIVATE)
+    {
+        mobj_t *shadow = shadow_create(vma->vma_obj);
+        if (shadow == NULL)
+        {
+            return -ENOMEM;
+        }
+        mobj_unlock(shadow);
+        vma->vma_obj = shadow;
+        mobj_ref(vma->vma_obj); /// needed
+    }
 
+    list_insert_tail(&map->vmm_list, &vma->vma_plink);
 
-    // vmarea_t *vma = vmarea_alloc();
-    // if (vma == NULL)
-    // {
-    //     return -ENOMEM;
-    // }
-
-    // vma->vma_start = lopage;
-    // vma->vma_end = lopage + npages;
-    // vma->vma_prot = prot;
-    // vma->vma_flags = flags;
-    // vma->vma_off = ADDR_TO_PN(off);
-    // vma->vma_obj = &file->vn_mobj; //// could be anonymous!!
-    // vma->vma_vmmap = map;
-    // mobj_ref(vma->vma_obj);
-
-    // if (flags & MAP_PRIVATE)
-    // {
-    //     mobj_t *shadow = shadow_create(vma->vma_obj);
-    //     if (shadow == NULL)
-    //     {
-    //         return -ENOMEM;
-    //     }
-    //     vma->vma_obj = shadow;
-    //     mobj_ref(vma->vma_obj);
-    // }
-
-    // list_insert_tail(&map->vmm_list, &vma->vma_plink);
-
-    // if (new_vma != NULL)
-    // {
-    //     *new_vma = vma;
-    // }
+    if (new_vma != NULL)
+    {
+        *new_vma = vma;
+    }
 
     return 0;
     // NOT_YET_IMPLEMENTED("VM: vmmap_map");
@@ -522,6 +531,9 @@ long vmmap_remove(vmmap_t *map, size_t lopage, size_t npages)
 {
     NOT_YET_IMPLEMENTED("VM: vmmap_remove");
     return -1;
+
+    /*if no overlap, return 0
+    */
 
     // vmarea_t *vma;
     // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
@@ -621,21 +633,22 @@ long vmmap_remove(vmmap_t *map, size_t lopage, size_t npages)
  * Returns 1 if the given address space has no mappings for the given range,
  * 0 otherwise.
  */
-long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages)
+long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages) /// verify
 {
 
-    // vmarea_t *vma;
-    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
-    // {
-    //     if (vma->vma_start <= startvfn && vma->vma_end >= startvfn + npages)
-    //     {
-    //         return 0;
-    //     }
-    // }
-    // return 1;
+    vmarea_t *vma; /// 
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    {
+        // check for the 3 cases of overlap where 0 should be returned 
+        if (vma->vma_start < startvfn + npages && vma->vma_end > startvfn)
+        {
+            return 0;
+        }
+    }
+    return 1;
 
-    NOT_YET_IMPLEMENTED("VM: vmmap_is_range_empty");
-    return 0;
+    // NOT_YET_IMPLEMENTED("VM: vmmap_is_range_empty");
+    // return 0;
 }
 
 /*
@@ -656,6 +669,10 @@ long vmmap_is_range_empty(vmmap_t *map, size_t startvfn, size_t npages)
 long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
 {
     vmarea_t *vma;
+    /*
+
+    
+    */
     // call vmmmap lookup
     // 2. mobj get pframe 
     // while loop:
@@ -664,22 +681,22 @@ long vmmap_read(vmmap_t *map, const void *vaddr, void *buf, size_t count)
     */
    //mobj get pframe, vmmp_lookup 
 
-    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
-    {
-        if (vma->vma_start <= ADDR_TO_PN(vaddr) && vma->vma_end >= ADDR_TO_PN(vaddr) + ADDR_TO_PN(count))
-        {
-            pframe_t *pf;
-            size_t offset = ADDR_TO_PN(vaddr) - vma->vma_start;
-            size_t size = ADDR_TO_PN(count);
-            for (size_t i = 0; i < size; i++)
-            {
-                //pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
-                memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
-                //pframe_put(pf);
-            }
-            return 0;
-        }
-    }
+    // list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
+    // {
+    //     if (vma->vma_start <= ADDR_TO_PN(vaddr) && vma->vma_end >= ADDR_TO_PN(vaddr) + ADDR_TO_PN(count))
+    //     {
+    //         pframe_t *pf;
+    //         size_t offset = ADDR_TO_PN(vaddr) - vma->vma_start;
+    //         size_t size = ADDR_TO_PN(count);
+    //         for (size_t i = 0; i < size; i++)
+    //         {
+    //             //pf = pframe_get(vma->vma_obj, vma->vma_off + offset + i);
+    //             memcpy(buf + i, pf->pf_addr, PAGE_SIZE);
+    //             //pframe_put(pf);
+    //         }
+    //         return 0;
+    //     }
+    // }
 
 
     NOT_YET_IMPLEMENTED("VM: vmmap_read");

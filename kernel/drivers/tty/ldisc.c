@@ -154,7 +154,7 @@ void ldisc_key_pressed(ldisc_t *ldisc, char c)
     else if (c == '\n') {
         ldisc->ldisc_buffer[ldisc->ldisc_head] = c;
         ldisc->ldisc_head = (ldisc->ldisc_head + 1) % LDISC_BUFFER_SIZE;
-        ldisc->ldisc_cooked = ldisc->ldisc_tail;
+        ldisc->ldisc_cooked = ldisc->ldisc_head;
         vterminal_write(&ldisc_to_tty(ldisc)->tty_vterminal, "\n", 1); /// what is the terminal?
         sched_wakeup_on(&ldisc->ldisc_read_queue, NULL);
     }

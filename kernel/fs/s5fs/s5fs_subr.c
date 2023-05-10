@@ -213,42 +213,6 @@ long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
         } else {
             return 0;
         }
-    // } else {
-    //     pframe_t *pframe;
-    //     s5_get_disk_block(sn->s5_fs, sn->inode->s5_indirect_block, 0, &pframe);
-    // }
-
-    // pframe_t *pframe;
-
-    // uint32_t *indirect_block = ADDR_TO_PN(pframe->pf_addr); /// casting here?
-    // long block = indirect_block[file_blocknum - S5_NDIRECT_BLOCKS];
-
-    // if (block == 0) {
-    //     s5_release_disk_block(&pframe);
-
-    //     if (alloc) {
-    //         block = s5_alloc_block(s5fs);
-    //         if (block < 0) {
-    //             // s5_release_disk_block(&pframe);
-    //             return block;
-    //         }
-    //         s5_get_disk_block(s5fs, file_blocknum, 0, &pframe); /// what args? 0 or 1?
-    //         indirect_block = (uint32_t *)pframe->pf_addr; /// macro here?
-    //         indirect_block[file_blocknum - S5_NDIRECT_BLOCKS] = block;
-    //         sn->dirtied_inode = 1;
-    //         s5_release_disk_block(&pframe);
-    //     } 
-    // } else {
-    //     s5_release_disk_block(&pframe);
-    // }
-
-    // return block;
-    // s5_release_disk_block(&pframe);
-    //return block;
-
-
-   // NOT_YET_IMPLEMENTED("S5FS: s5_file_block_to_disk_block");
-
 }
 
 /* Read from a file.
@@ -278,27 +242,34 @@ ssize_t s5_read_file(s5_node_t *sn, size_t pos, char *buf, size_t len)
     if (pos >= sn->inode.s5_un.s5_size) {
         return 0;
     }
-    if (len > bytes_left) {
-        bytes_to_read = bytes_left;
-    }
-    size_t file_blocknum = S5_DATA_BLOCK(pos);
-    size_t offset = S5_DATA_OFFSET(pos);
-    size_t bytes_to_read_from_block = S5_BLOCK_SIZE - offset;
-    if (bytes_to_read_from_block > bytes_to_read) {
-        bytes_to_read_from_block = bytes_to_read;
-    } 
+
+    // size_t file_blocknum = S5_DATA_BLOCK(pos);
+    // size_t offset = S5_DATA_OFFSET(pos);
+    // size_t bytes_to_read_from_block = S5_BLOCK_SIZE - offset;
+    // if (bytes_to_read_from_block > bytes_to_read) {
+    //     bytes_to_read_from_block = bytes_to_read;
+    // } 
     
     while (bytes_read < bytes_to_read) {
+        if (len > bytes_left) {
+        bytes_to_read = bytes_left;
+        }
+        size_t file_blocknum = S5_DATA_BLOCK(pos);
+        size_t offset = S5_DATA_OFFSET(pos);
+        size_t bytes_to_read_from_block = S5_BLOCK_SIZE - offset;
+        if (bytes_to_read_from_block > bytes_to_read) {
+            bytes_to_read_from_block = bytes_to_read;
+        } 
         pframe_t *pframe = NULL;
         int ret = s5_get_file_block(sn, S5_DATA_BLOCK(pos), 0, &pframe); 
         if (ret < 0) {
             return ret;
         }
-
         memcpy(buf + bytes_read, (char *)pframe->pf_addr + offset, bytes_to_read_from_block); /// 2nd arg right?
         //s5_release_file_block
         s5_release_file_block(&pframe);
         bytes_read += bytes_to_read_from_block;
+        pos += bytes_to_read_from_block;
         //file_blocknum += 1;
         //offset = 0;
         // bytes_to_read_from_block = S5_BLOCK_SIZE;
@@ -380,7 +351,7 @@ ssize_t s5_write_file(s5_node_t *sn, size_t pos, const char *buf, size_t len)
             return ret;
         }
 
-        memcpy((char *)pframe->pf_addr + offset, buf + written, to_write);
+        memcpy((char *)pframe->pf_addr + offset, buf, to_write); ///// buf changed
         s5_release_file_block(&pframe);
 
         written += to_write;
@@ -388,9 +359,7 @@ ssize_t s5_write_file(s5_node_t *sn, size_t pos, const char *buf, size_t len)
         pos += to_write;
         buf += to_write;
     }
-
     return written;
-
     // size_t bytes_written = 0;
     // size_t bytes_to_write = len;
     // size_t bytes_left = S5_MAX_FILE_SIZE - pos;
@@ -458,8 +427,7 @@ ssize_t s5_write_file(s5_node_t *sn, size_t pos, const char *buf, size_t len)
  *    s5_free_block below.
  *  - You may assume/assert that any pframe calls succeed.
  */
-static long 
-s5_alloc_block(s5fs_t *s5fs)
+static long s5_alloc_block(s5fs_t *s5fs)
 {
     s5_lock_super(s5fs);
     s5_super_t *s = &s5fs->s5f_super;
@@ -472,7 +440,7 @@ s5_alloc_block(s5fs_t *s5fs)
             return -ENOSPC;
         }
         
-        s5_get_disk_block(s5fs, last_blk, 0, &pframe); 
+        s5_get_disk_block(s5fs, last_blk, 1, &pframe); 
         memcpy(s->s5s_free_blocks, pframe->pf_addr, sizeof(s->s5s_free_blocks)); /// memcopy into s5 freeblock the pfaddr which I get from get disk block
         memset(pframe->pf_addr, 0, sizeof(s->s5s_free_blocks));
         s->s5s_nfree = S5_NBLKS_PER_FNODE - 1;
@@ -553,7 +521,7 @@ long s5_alloc_inode(s5fs_t *s5fs, uint16_t type, devid_t devid)
 
     s5_lock_super(s5fs);
     uint32_t new_ino = s5fs->s5f_super.s5s_free_inode;
-    if (new_ino == (uint32_t)-1)
+    if (new_ino == (uint32_t)(-1))
     {
         s5_unlock_super(s5fs);
         return -ENOSPC;
@@ -701,9 +669,9 @@ long s5_find_dirent(s5_node_t *sn, const char *name, size_t namelen,
         // check if dirent inode is allocated (!= -1)
 
         int ret = s5_read_file(sn, offset, (char *)&dirent, sizeof(s5_dirent_t));
-        if (ret == 0)
+        if (ret < 0)
         {
-            return -ENOENT;
+            return ret;
         }
 
         if (name_match(dirent.s5d_name, name, namelen))
@@ -717,7 +685,7 @@ long s5_find_dirent(s5_node_t *sn, const char *name, size_t namelen,
         offset += sizeof(s5_dirent_t);
     }
 
-    KASSERT(0); // should not reach here  
+    //KASSERT(0); // should not reach here  
 
     return -ENOENT;
     // NOT_YET_IMPLEMENTED("S5FS: s5_find_dirent");
