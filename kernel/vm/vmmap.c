@@ -115,8 +115,8 @@ vmmap_t *vmmap_create(void)
         map->vmm_proc = NULL;
     }
     return map;
-    NOT_YET_IMPLEMENTED("VM: vmmap_create"); /// make else case
-    return NULL;
+    // NOT_YET_IMPLEMENTED("VM: vmmap_create"); /// make else case
+    // return NULL;
 }
 
 /*
@@ -310,7 +310,7 @@ void vmmap_collapse(vmmap_t *map)
  * Be sure to clean up in any error case, manage the reference counts correctly,
  * and to lock/unlock properly.
  */
-vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any error cases? /// any locks
+vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function 
 {
     //vmmap_collpase(map);
     vmmap_t *new_map = vmmap_create();
@@ -320,11 +320,9 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
     }
     vmarea_t *vma;
 
-    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink)
-    {
+    list_iterate(&map->vmm_list, vma, vmarea_t, vma_plink){
         vmarea_t *new_vma = vmarea_alloc();
-        if (new_vma == NULL)
-        {
+        if (new_vma == NULL){
             vmmap_destroy(new_map);
             return NULL;
         }
@@ -336,37 +334,35 @@ vmmap_t *vmmap_clone(vmmap_t *map) /// need help with this function /// any erro
         new_vma->vma_obj = vma->vma_obj;
         new_vma->vma_vmmap = new_map;
         mobj_ref(new_vma->vma_obj); /// location?
-
-        if (new_vma->vma_flags & MAP_SHARED)
-        {
-            new_vma->vma_obj = vma->vma_obj;
-            // vmmmap_insert(new_map, new_vma); /// need this?
-            continue;
+        if (new_vma->vma_flags & MAP_SHARED){
+            new_vma->vma_obj = vma->vma_obj;   
+            // continue; 
         } 
-        else
-        {
-            /// 
-            mobj_t *new_shadow = shadow_create(new_vma->vma_obj); /// should be vma instead of new_vma? if yes, adjust unlocking too
-            mobj_t *old_shadow = shadow_create(new_vma->vma_obj);
-            if (new_shadow == NULL || old_shadow == NULL)
-            { /// setrate
+        else{
+            mobj_t *new_shadow = shadow_create(vma->vma_obj); /// should be vma instead of new_vma? if yes, adjust unlocking too
+            if (new_shadow == NULL)
+            {
                 vmmap_destroy(new_map);
                 return NULL;
             }
-            mobj_put(&vma->vma_obj); /// this?
+            mobj_t *old_shadow = shadow_create(vma->vma_obj);
+            if (old_shadow == NULL)
+            { 
+                vmmap_destroy(new_map);
+                return NULL;
+            }
+            //mobj_put(&vma->vma_obj); /// this?
             new_vma->vma_obj = new_shadow;
             vma->vma_obj = old_shadow;
             // mobj_ref(new_vma->vma_obj);
             // mobj_ref(vma->vma_obj);
-            mobj_unlock(new_vma->vma_obj);
+            //mobj_unlock(new_vma->vma_obj);
             mobj_unlock(vma->vma_obj);
-
-            //list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink); /// outside if-else?
-            //list_insert_tail(&map->vmm_list, &vma->vma_plink); /// confirm
-            //mobj_lock(new_vma->vma_obj);
 
         }
         //vmmmap_insert(new_map, new_vma); /// need this?
+        list_insert_tail(&new_map->vmm_list, &new_vma->vma_plink);
+        list_insert_tail(&map->vmm_list, &vma->vma_plink);
 
     }
     return new_map;

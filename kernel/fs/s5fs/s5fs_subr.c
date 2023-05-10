@@ -163,7 +163,6 @@ static inline void s5_release_file_block(pframe_t **pfp)
 long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
                                  int alloc) 
 { /// any locking or refcounts? /// verify
-
     if (file_blocknum >= S5_MAX_FILE_BLOCKS) {
         return -EINVAL;
     }
@@ -236,12 +235,46 @@ long s5_file_block_to_disk_block(s5_node_t *sn, size_t file_blocknum,
  */
 ssize_t s5_read_file(s5_node_t *sn, size_t pos, char *buf, size_t len)
 {
-    size_t bytes_read = 0;
-    size_t bytes_to_read = len;
-    size_t bytes_left = sn->inode.s5_un.s5_size - pos;
-    if (pos >= sn->inode.s5_un.s5_size) {
-        return 0;
+    s5_inode_t *inode = &sn->inode;
+    ssize_t read = 0;
+    ssize_t to_read = len;
+    size_t blocknum = S5_DATA_BLOCK(pos);
+    size_t offset = S5_DATA_OFFSET(pos);
+
+    while (len > 0){
+
+        pframe_t *pframe = NULL;
+        int res = s5_get_file_block(sn, blocknum, 0, &pframe);
+        if (res < 0) {
+            return res;
+        }
+
+        if (pos > inode->s5_un.s5_size) {
+            break;
+        } 
+        
+        if (pos + len > inode->s5_un.s5_size) {
+            to_read = inode->s5_un.s5_size - pos;
+        } else {
+            to_read = MIN(S5_BLOCK_SIZE - offset, len);
+        }
+
+        memcpy(buf, (char*)pframe->pf_addr + offset, to_read);
+        s5_release_file_block(&pframe);
+        read += to_read;
+        len -= to_read;
+        pos += to_read;
+        buf += to_read;
+
     }
+
+
+    // size_t bytes_read = 0;
+    // size_t bytes_to_read = len;
+    // size_t bytes_left = sn->inode.s5_un.s5_size - pos;
+    // if (pos >= sn->inode.s5_un.s5_size) {
+    //     return 0;
+    // }
 
     // size_t file_blocknum = S5_DATA_BLOCK(pos);
     // size_t offset = S5_DATA_OFFSET(pos);
@@ -250,34 +283,34 @@ ssize_t s5_read_file(s5_node_t *sn, size_t pos, char *buf, size_t len)
     //     bytes_to_read_from_block = bytes_to_read;
     // } 
     
-    while (bytes_read < bytes_to_read) {
-        if (len > bytes_left) {
-        bytes_to_read = bytes_left;
-        }
-        size_t file_blocknum = S5_DATA_BLOCK(pos);
-        size_t offset = S5_DATA_OFFSET(pos);
-        size_t bytes_to_read_from_block = S5_BLOCK_SIZE - offset;
-        if (bytes_to_read_from_block > bytes_to_read) {
-            bytes_to_read_from_block = bytes_to_read;
-        } 
-        pframe_t *pframe = NULL;
-        int ret = s5_get_file_block(sn, S5_DATA_BLOCK(pos), 0, &pframe); 
-        if (ret < 0) {
-            return ret;
-        }
-        memcpy(buf + bytes_read, (char *)pframe->pf_addr + offset, bytes_to_read_from_block); /// 2nd arg right?
-        //s5_release_file_block
-        s5_release_file_block(&pframe);
-        bytes_read += bytes_to_read_from_block;
-        pos += bytes_to_read_from_block;
-        //file_blocknum += 1;
-        //offset = 0;
-        // bytes_to_read_from_block = S5_BLOCK_SIZE;
-        // if (bytes_to_read_from_block > bytes_to_read - bytes_read) {
-        //     bytes_to_read_from_block = bytes_to_read - bytes_read;
-        }
+    // while (bytes_read < bytes_to_read) {
+    //     if (len > bytes_left) {
+    //     bytes_to_read = bytes_left;
+    //     }
+    //     size_t file_blocknum = S5_DATA_BLOCK(pos);
+    //     size_t offset = S5_DATA_OFFSET(pos);
+    //     size_t bytes_to_read_from_block = S5_BLOCK_SIZE - offset;
+    //     if (bytes_to_read_from_block > bytes_to_read) {
+    //         bytes_to_read_from_block = bytes_to_read;
+    //     } 
+    //     pframe_t *pframe = NULL;
+    //     int ret = s5_get_file_block(sn, S5_DATA_BLOCK(pos), 0, &pframe); 
+    //     if (ret < 0) {
+    //         return ret;
+    //     }
+    //     memcpy(buf + bytes_read, (char *)pframe->pf_addr + offset, bytes_to_read_from_block); /// 2nd arg right?
+    //     //s5_release_file_block
+    //     s5_release_file_block(&pframe);
+    //     bytes_read += bytes_to_read_from_block;
+    //     pos += bytes_to_read_from_block;
+    //     //file_blocknum += 1;
+    //     //offset = 0;
+    //     // bytes_to_read_from_block = S5_BLOCK_SIZE;
+    //     // if (bytes_to_read_from_block > bytes_to_read - bytes_read) {
+    //     //     bytes_to_read_from_block = bytes_to_read - bytes_read;
+    //     }
     
-    return bytes_read;
+    return read;
     // NOT_YET_IMPLEMENTED("S5FS: s5_read_file");
     // return -1;
 }

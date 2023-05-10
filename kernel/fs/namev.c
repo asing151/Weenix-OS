@@ -225,7 +225,7 @@ long namev_dir(vnode_t *base, const char *path, vnode_t **res_vnode,
     //     basenode = base;
     // }
 
-    char *nextname = (char *)namev_tokenize(&path, &next_len);n
+    char *nextname = (char *)namev_tokenize(&path, &next_len);
 
     vlock(basenode);
     vref(basenode); 
